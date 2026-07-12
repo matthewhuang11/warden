@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Warden Settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <header class="warden-header">
+    <span aria-hidden="true">🛡️</span>
+    <h1>Warden Settings</h1>
+  </header>
+
+  <main>
+    <section class="warden-card">
+      <h2>Built-in detection categories</h2>
+      <p class="warden-hint">Always on: email addresses, phone numbers, SSNs, credit card numbers, and IP addresses.</p>
+    </section>
+
+    <section class="warden-card">
+      <h2>Custom patterns</h2>
+      <p class="warden-hint">Add your own regex for anything the built-ins miss, e.g. an internal employee ID format.</p>
+
+      <table class="warden-table" id="pattern-table">
+        <thead>
+          <tr>
+            <th>Label</th>
+            <th>Pattern</th>
+            <th>Flags</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="pattern-list"></tbody>
+      </table>
+      <p id="empty-state" class="warden-hint">No custom patterns yet.</p>
+
+      <form id="add-form" class="warden-form">
+        <div class="warden-field">
+          <label for="new-label">Label</label>
+          <input type="text" id="new-label" placeholder="EMPLOYEE_ID" required />
+        </div>
+        <div class="warden-field warden-field-grow">
+          <label for="new-pattern">Regex pattern</label>
+          <input type="text" id="new-pattern" placeholder="\bEMP-\d{5}\b" required />
+        </div>
+        <div class="warden-field">
+          <label for="new-flags">Flags</label>
+          <input type="text" id="new-flags" placeholder="g" />
+        </div>
+        <button type="submit" class="warden-btn warden-btn-primary">Add pattern</button>
+      </form>
+      <p id="form-error" class="warden-error" role="alert"></p>
+    </section>
+
+    <section class="warden-card">
+      <h2>Try it</h2>
+      <p class="warden-hint">Paste sample text to see what Warden would detect &mdash; entirely local, nothing leaves this page.</p>
+      <textarea id="test-input" rows="4" placeholder="Type or paste text here..."></textarea>
+      <div id="test-results" class="warden-hint"></div>
+    </section>
+  </main>
+
+  <script src="../src/settings.js"></script>
+  <script src="../src/detection.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
