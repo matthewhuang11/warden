@@ -30,6 +30,7 @@
         "https://gemini.google.com/*"
       ],
       "js": [
+        "src/settings.js",
         "src/detection.js",
         "src/tokenizer.js",
         "src/sites.js",

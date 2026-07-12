@@ -12,18 +12,6 @@
 (function () {
   'use strict';
 
-  const DEFAULT_SETTINGS = {
-    enabled: true,
-    sites: { chatgpt: true, claude: true, gemini: true },
-    customPatterns: [],
-  };
-
-  function loadSettings() {
-    return new Promise((resolve) => {
-      chrome.storage.local.get(DEFAULT_SETTINGS, (stored) => resolve(stored));
-    });
-  }
-
   function waitForElement(selectors, { timeout = 10000, interval = 400 } = {}) {
     return new Promise((resolve) => {
       const start = Date.now();
@@ -193,7 +181,7 @@
   }
 
   async function main() {
-    const settings = await loadSettings();
+    const settings = await WardenSettings.loadSettings();
     const siteConfig = WardenSites.getSiteConfig(location.hostname);
 
     const shouldRun = !!siteConfig && settings.enabled && !!settings.sites[siteConfig.key];

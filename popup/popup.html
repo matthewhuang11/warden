@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Warden</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="warden-header">
+    <span class="warden-header-icon" aria-hidden="true">🛡️</span>
+    <div>
+      <h1>Warden</h1>
+      <p class="warden-tagline">Privacy, before you hit send.</p>
+    </div>
+  </header>
+
+  <section class="warden-row">
+    <label class="warden-switch-row" for="toggle-enabled">
+      <span>Warden protection</span>
+      <span class="warden-switch">
+        <input type="checkbox" id="toggle-enabled" />
+        <span class="warden-slider"></span>
+      </span>
+    </label>
+  </section>
+
+  <section class="warden-row warden-count">
+    <span class="warden-count-icon" aria-hidden="true">🛡️</span>
+    <span id="count-text">— items protected this session</span>
+  </section>
+
+  <section id="site-status" class="warden-row warden-site-status"></section>
+
+  <section class="warden-row">
+    <h2 class="warden-subheading">Protect on these sites</h2>
+    <label class="warden-switch-row" for="toggle-site-chatgpt">
+      <span>ChatGPT</span>
+      <span class="warden-switch">
+        <input type="checkbox" id="toggle-site-chatgpt" data-site="chatgpt" />
+        <span class="warden-slider"></span>
+      </span>
+    </label>
+    <label class="warden-switch-row" for="toggle-site-claude">
+      <span>Claude</span>
+      <span class="warden-switch">
+        <input type="checkbox" id="toggle-site-claude" data-site="claude" />
+        <span class="warden-slider"></span>
+      </span>
+    </label>
+    <label class="warden-switch-row" for="toggle-site-gemini">
+      <span>Gemini</span>
+      <span class="warden-switch">
+        <input type="checkbox" id="toggle-site-gemini" data-site="gemini" />
+        <span class="warden-slider"></span>
+      </span>
+    </label>
+  </section>
+
+  <footer class="warden-footer">
+    <a href="#" id="settings-link">Settings</a>
+  </footer>
+
+  <script src="../src/settings.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
