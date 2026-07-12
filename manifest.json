@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "Warden — Privacy, before you hit send.",
+  "version": "1.0.0",
+  "description": "Detects likely-sensitive content in your AI chat messages and lets you redact it before it ever leaves your browser. 100% local detection, zero network calls.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "options/options.html",
+  "permissions": [
+    "storage"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*"
+      ],
+      "js": [
+        "src/detection.js",
+        "src/tokenizer.js",
+        "src/sites.js",
+        "src/banner.js",
+        "src/content-script.js"
+      ],
+      "css": [
+        "src/banner.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
