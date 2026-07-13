@@ -38,3 +38,13 @@ export type WardenMessage =
   | { type: 'WARDEN_STATE_RESPONSE'; payload: WardenSessionState & { supported: boolean; enabled: boolean; siteEnabled: boolean } }
   | { type: 'WARDEN_CLEAR_SESSION' }
   | { type: 'WARDEN_REDACTION_MADE'; payload: { count: number } };
+
+export type SiteKey = 'chatgpt' | 'claude';
+
+export interface SiteAdapter {
+  key: SiteKey;
+  name: string;
+  matchesHost(hostname: string): boolean;
+  getInputElement(): HTMLElement | null;
+  getSendButton(): HTMLElement | null;
+}

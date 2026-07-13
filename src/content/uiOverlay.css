@@ -1,0 +1,35 @@
+.warden-overlay {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px 0;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid #3a4568;
+  background: #1c2340;
+  color: #e7ebfa;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 12px;
+  line-height: 1.4;
+  z-index: 2147483000;
+  position: relative;
+}
+
+.warden-overlay .warden-overlay-icon {
+  font-size: 13px;
+}
+
+.warden-overlay .warden-overlay-toggle {
+  cursor: pointer;
+  border: none;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #3a6ed2;
+  color: #ffffff;
+}
+
+.warden-overlay .warden-overlay-toggle:hover {
+  background: #2f5bb5;
+}
