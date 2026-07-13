@@ -5,6 +5,7 @@ import manifest from './manifest.json';
 
 export default defineConfig({
   plugins: [react(), crx({ manifest })],
+  publicDir: false,
   server: {
     port: 5173,
     strictPort: true,
