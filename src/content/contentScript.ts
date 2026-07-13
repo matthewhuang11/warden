@@ -94,10 +94,17 @@ function setText(el: HTMLElement, text: string): void {
   }
 }
 
-/** Prefers the adapter's own extraction (e.g. chatgptAdapter's ProseMirror-aware read) over the generic fallback. */
-function readPromptText(adapter: SiteAdapter, el: HTMLElement): string {
+/**
+ * Prefers the adapter's own extraction (e.g. chatgptAdapter's ProseMirror-
+ * aware read) over the generic fallback. `context` is logged alongside the
+ * extracted text so it's unambiguous which call site fired -- in particular,
+ * the 'typing' context (from the debug-only input listener) never runs
+ * anonymize(), so seeing it without a matching '[Warden] Anonymization
+ * result' line afterwards is expected, not a bug.
+ */
+function readPromptText(adapter: SiteAdapter, el: HTMLElement, context: 'typing' | 'submit' | 'paste'): string {
   const text = adapter.getPromptText ? adapter.getPromptText(el) : getText(el);
-  console.log('[Warden] Extracted prompt text:', text);
+  console.log(`[Warden] Extracted prompt text (${context}):`, text);
   return text;
 }
 
@@ -215,8 +222,11 @@ async function init(adapter: SiteAdapter): Promise<void> {
     }
     if (!sessionEnabled) return;
 
-    const text = readPromptText(adapter, input);
-    if (!text || !text.trim()) return;
+    const text = readPromptText(adapter, input, 'submit');
+    if (!text || !text.trim()) {
+      console.warn('[Warden] Submit aborted: extracted text was empty -- see chatgptAdapter.getPromptText / claudeAdapter selectors.');
+      return;
+    }
 
     const result = anonymize(text, mapper);
     console.log('[Warden] Anonymization result:', result);
@@ -246,10 +256,10 @@ async function init(adapter: SiteAdapter): Promise<void> {
     if (!sessionEnabled) return;
 
     const pastedText = event.clipboardData?.getData('text/plain') ?? '';
+    console.log('[Warden] Extracted prompt text (paste):', pastedText);
     if (!pastedText) return;
 
     const result = anonymize(pastedText, mapper);
-    console.log('[Warden] Extracted prompt text:', pastedText);
     console.log('[Warden] Anonymization result:', result);
     if (result.redactionCount === 0) return; // nothing sensitive -- let the paste proceed untouched
 
@@ -259,9 +269,14 @@ async function init(adapter: SiteAdapter): Promise<void> {
     chrome.runtime.sendMessage<WardenMessage>({ type: 'WARDEN_REDACTION_MADE', payload: { count: mapper.size } });
   }
 
-  /** Debug visibility into extraction as the user types -- see the "zero-redaction extraction" fix. */
+  /**
+   * Debug visibility into extraction as the user types. This never runs
+   * anonymize() -- it's purely a read, so seeing this log stream with no
+   * "Anonymization result" following it is expected. Detection only runs on
+   * an actual submit (Enter/click) or paste.
+   */
   function handleInput(): void {
-    readPromptText(adapter, input);
+    readPromptText(adapter, input, 'typing');
   }
 
   sendBtn?.addEventListener('click', handleSubmitAttempt, true);
