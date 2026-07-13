@@ -31,6 +31,26 @@ function waitForElement(
   });
 }
 
+/**
+ * Waits for the adapter's own hydration signal (if it has one) before we do
+ * anything else. This is what prevents us from reading/writing a pre-
+ * hydration DOM snapshot and racing React's own reconciliation of that
+ * subtree -- adapters without an isHydrated() check are treated as always
+ * ready, so this is a no-op for sites that don't need it.
+ */
+function waitForHydration(adapter: SiteAdapter, timeout = 8000, interval = 250): Promise<void> {
+  return new Promise((resolve) => {
+    if (!adapter.isHydrated) return resolve();
+    const start = Date.now();
+    const tick = () => {
+      if (adapter.isHydrated!()) return resolve();
+      if (Date.now() - start >= timeout) return resolve(); // proceed anyway; downstream lookups fail gracefully
+      setTimeout(tick, interval);
+    };
+    tick();
+  });
+}
+
 function getText(el: HTMLElement): string {
   if (el instanceof HTMLTextAreaElement) return el.value;
   return el.innerText ?? el.textContent ?? '';
@@ -72,11 +92,18 @@ function setText(el: HTMLElement, text: string): void {
 }
 
 async function init(adapter: SiteAdapter): Promise<void> {
+  // Gate on the site's own hydration signal first (see waitForHydration) --
+  // only once that's satisfied do we start reading/writing the DOM at all.
+  await waitForHydration(adapter);
+
   const inputEl = await waitForElement(() => adapter.getInputElement());
   if (!inputEl) {
     console.warn(`[Warden] Could not find the message box on ${adapter.name}. Disabling for this page.`);
     return;
   }
+  // Rebind as a fresh, non-nullable const so closures defined below (which
+  // TS can't narrow `inputEl` through) get a properly-typed reference.
+  const input: HTMLElement = inputEl;
 
   const sendBtn = adapter.getSendButton();
   if (!sendBtn) {
@@ -87,13 +114,30 @@ async function init(adapter: SiteAdapter): Promise<void> {
   let bypassNext = false;
   let sessionEnabled = true;
 
+  // Mounted directly on <body> as an absolutely (fixed) positioned overlay
+  // -- never inserted into the platform's own form/composer tree, so we can
+  // never collide with React reconciling that subtree (the root cause of
+  // hydration error #418 here).
   const overlayContainer = document.createElement('div');
   overlayContainer.id = 'warden-overlay-root';
-  inputEl.parentElement?.insertBefore(overlayContainer, inputEl);
+  overlayContainer.style.position = 'fixed';
+  overlayContainer.style.zIndex = '2147483647';
+  document.body.appendChild(overlayContainer);
 
   const overlay: OverlayHandle = mountOverlay(overlayContainer, { count: 0, enabled: true }, (enabled) => {
     sessionEnabled = enabled;
   });
+
+  function repositionOverlay(): void {
+    const rect = input.getBoundingClientRect();
+    const height = overlayContainer.offsetHeight || 32;
+    overlayContainer.style.left = `${Math.max(rect.left, 8)}px`;
+    overlayContainer.style.top = `${Math.max(rect.top - height - 8, 8)}px`;
+  }
+
+  requestAnimationFrame(repositionOverlay);
+  window.addEventListener('resize', repositionOverlay);
+  window.addEventListener('scroll', repositionOverlay, true);
 
   function triggerSend(): void {
     bypassNext = true;
@@ -101,7 +145,7 @@ async function init(adapter: SiteAdapter): Promise<void> {
       sendBtn.click();
       return;
     }
-    inputEl?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
   }
 
   function handleSubmitAttempt(event: Event): void {
@@ -109,9 +153,9 @@ async function init(adapter: SiteAdapter): Promise<void> {
       bypassNext = false;
       return;
     }
-    if (!sessionEnabled || !inputEl) return;
+    if (!sessionEnabled) return;
 
-    const text = getText(inputEl);
+    const text = getText(input);
     if (!text || !text.trim()) return;
 
     const result = anonymize(text, mapper);
@@ -120,7 +164,7 @@ async function init(adapter: SiteAdapter): Promise<void> {
     event.preventDefault();
     event.stopImmediatePropagation();
 
-    setText(inputEl, result.sanitizedText);
+    setText(input, result.sanitizedText);
     overlay.setCount(mapper.size);
     chrome.runtime.sendMessage<WardenMessage>({ type: 'WARDEN_REDACTION_MADE', payload: { count: mapper.size } });
 
@@ -133,7 +177,7 @@ async function init(adapter: SiteAdapter): Promise<void> {
   }
 
   sendBtn?.addEventListener('click', handleSubmitAttempt, true);
-  inputEl.addEventListener('keydown', handleKeydown, true);
+  input.addEventListener('keydown', handleKeydown, true);
 
   // Observe streaming responses and swap synthetic tokens back to real values.
   let revealPending = false;
@@ -152,6 +196,7 @@ async function init(adapter: SiteAdapter): Promise<void> {
   // "navigated away from the conversation" and clear the in-memory session.
   let lastHref = location.href;
   setInterval(() => {
+    repositionOverlay();
     if (location.href !== lastHref) {
       lastHref = location.href;
       mapper.clear();
@@ -202,4 +247,28 @@ async function main(): Promise<void> {
   await init(adapter);
 }
 
-main();
+/**
+ * Defers all setup until the page has fully loaded (not just document_idle,
+ * which can still race a React app's own client-side hydration), then waits
+ * out one more idle/500ms window as a safety margin before we ever touch
+ * the DOM. This -- combined with waitForHydration() and mounting the
+ * overlay outside the page's own component tree -- is what fixes the
+ * hydration mismatch (#418) we were causing on chatgpt.com.
+ */
+function bootWhenIdle(): void {
+  const run = () => {
+    if (typeof requestIdleCallback === 'function') {
+      requestIdleCallback(() => setTimeout(main, 500), { timeout: 2000 });
+    } else {
+      setTimeout(main, 500);
+    }
+  };
+
+  if (document.readyState === 'complete') {
+    run();
+  } else {
+    window.addEventListener('load', run, { once: true });
+  }
+}
+
+bootWhenIdle();

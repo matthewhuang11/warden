@@ -47,4 +47,11 @@ export interface SiteAdapter {
   matchesHost(hostname: string): boolean;
   getInputElement(): HTMLElement | null;
   getSendButton(): HTMLElement | null;
+  /**
+   * Optional, site-specific readiness check used as an extra gate before we
+   * touch the DOM at all -- lets an adapter report "React has hydrated
+   * enough to be safe" beyond just "the input element exists". Adapters
+   * that don't implement it are treated as always-ready.
+   */
+  isHydrated?(): boolean;
 }
