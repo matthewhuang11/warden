@@ -53,7 +53,10 @@ function waitForHydration(adapter: SiteAdapter, timeout = 8000, interval = 250):
 
 function getText(el: HTMLElement): string {
   if (el instanceof HTMLTextAreaElement) return el.value;
-  return el.innerText ?? el.textContent ?? '';
+  // `||` (not `??`) deliberately: innerText can come back as a legitimate
+  // empty string before layout has settled, and we still want the
+  // textContent fallback in that case rather than silently returning ''.
+  return el.innerText || el.textContent || '';
 }
 
 function setText(el: HTMLElement, text: string): void {
@@ -85,6 +88,63 @@ function setText(el: HTMLElement, text: string): void {
 
   if (!inserted) {
     el.textContent = text;
+    el.dispatchEvent(
+      new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: text })
+    );
+  }
+}
+
+/** Prefers the adapter's own extraction (e.g. chatgptAdapter's ProseMirror-aware read) over the generic fallback. */
+function readPromptText(adapter: SiteAdapter, el: HTMLElement): string {
+  const text = adapter.getPromptText ? adapter.getPromptText(el) : getText(el);
+  console.log('[Warden] Extracted prompt text:', text);
+  return text;
+}
+
+function writePromptText(adapter: SiteAdapter, el: HTMLElement, text: string): void {
+  if (adapter.setPromptText) {
+    adapter.setPromptText(el, text);
+  } else {
+    setText(el, text);
+  }
+}
+
+/**
+ * Inserts sanitized text at the current cursor/selection rather than
+ * replacing the whole field -- used for paste, where the browser has
+ * already positioned the selection at the paste target and a full-field
+ * replacement would clobber anything typed before/after it.
+ */
+function insertAtCursor(el: HTMLElement, text: string): void {
+  if (el instanceof HTMLTextAreaElement) {
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    const nextValue = el.value.slice(0, start) + text + el.value.slice(end);
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+    setter?.call(el, nextValue);
+    const cursor = start + text.length;
+    el.setSelectionRange(cursor, cursor);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    return;
+  }
+
+  let inserted = false;
+  try {
+    inserted = document.execCommand('insertText', false, text);
+  } catch {
+    inserted = false;
+  }
+
+  if (!inserted) {
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      range.deleteContents();
+      range.insertNode(document.createTextNode(text));
+      range.collapse(false);
+    } else {
+      el.textContent = (el.textContent ?? '') + text;
+    }
     el.dispatchEvent(
       new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: text })
     );
@@ -155,16 +215,17 @@ async function init(adapter: SiteAdapter): Promise<void> {
     }
     if (!sessionEnabled) return;
 
-    const text = getText(input);
+    const text = readPromptText(adapter, input);
     if (!text || !text.trim()) return;
 
     const result = anonymize(text, mapper);
+    console.log('[Warden] Anonymization result:', result);
     if (result.redactionCount === 0) return;
 
     event.preventDefault();
     event.stopImmediatePropagation();
 
-    setText(input, result.sanitizedText);
+    writePromptText(adapter, input, result.sanitizedText);
     overlay.setCount(mapper.size);
     chrome.runtime.sendMessage<WardenMessage>({ type: 'WARDEN_REDACTION_MADE', payload: { count: mapper.size } });
 
@@ -176,8 +237,37 @@ async function init(adapter: SiteAdapter): Promise<void> {
     handleSubmitAttempt(event);
   }
 
+  /**
+   * Pasted text bypasses the normal typed-then-submit flow entirely, so it
+   * needs its own interception: sanitize before the browser ever inserts
+   * the clipboard content into the DOM, not after.
+   */
+  function handlePaste(event: ClipboardEvent): void {
+    if (!sessionEnabled) return;
+
+    const pastedText = event.clipboardData?.getData('text/plain') ?? '';
+    if (!pastedText) return;
+
+    const result = anonymize(pastedText, mapper);
+    console.log('[Warden] Extracted prompt text:', pastedText);
+    console.log('[Warden] Anonymization result:', result);
+    if (result.redactionCount === 0) return; // nothing sensitive -- let the paste proceed untouched
+
+    event.preventDefault();
+    insertAtCursor(input, result.sanitizedText);
+    overlay.setCount(mapper.size);
+    chrome.runtime.sendMessage<WardenMessage>({ type: 'WARDEN_REDACTION_MADE', payload: { count: mapper.size } });
+  }
+
+  /** Debug visibility into extraction as the user types -- see the "zero-redaction extraction" fix. */
+  function handleInput(): void {
+    readPromptText(adapter, input);
+  }
+
   sendBtn?.addEventListener('click', handleSubmitAttempt, true);
   input.addEventListener('keydown', handleKeydown, true);
+  input.addEventListener('paste', handlePaste, true);
+  input.addEventListener('input', handleInput);
 
   // Observe streaming responses and swap synthetic tokens back to real values.
   let revealPending = false;

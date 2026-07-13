@@ -54,4 +54,7 @@ export interface SiteAdapter {
    * that don't implement it are treated as always-ready.
    */
   isHydrated?(): boolean;
+  /** Optional, site-specific text extraction/insertion overrides for the input element. */
+  getPromptText?(inputEl: HTMLElement): string;
+  setPromptText?(inputEl: HTMLElement, newText: string): void;
 }
