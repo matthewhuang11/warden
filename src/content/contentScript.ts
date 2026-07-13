@@ -254,11 +254,35 @@ async function init(adapter: SiteAdapter): Promise<void> {
 
   /**
    * Pasted text bypasses the normal typed-then-submit flow entirely, so it
-   * needs its own interception: sanitize before the browser ever inserts
-   * the clipboard content into the DOM, not after.
+   * needs its own interception -- sanitize before the browser (or the
+   * editor's own paste handling) ever inserts the clipboard content into
+   * the DOM.
+   *
+   * ProseMirror-style editors register their own paste handler directly on
+   * the contenteditable node itself (at EditorView construction, i.e. well
+   * before our deliberately-delayed init() runs) and commonly call
+   * stopImmediatePropagation() there to own the paste transaction. A
+   * listener attached to that same node -- which is what we had before --
+   * loses that race and never fires. Registering on `document` in the
+   * capture phase instead guarantees we see the event while it's still
+   * travelling *down* to the target, strictly before it ever reaches that
+   * node-level listener.
    */
   function handlePaste(event: ClipboardEvent): void {
     if (!sessionEnabled) return;
+
+    // Re-queried fresh (not the closed-over `input`) for the same reason
+    // triggerSend() re-queries the send button: don't trust a DOM reference
+    // captured once at init() to still be the live node.
+    const currentInput = adapter.getInputElement();
+    if (!currentInput) return;
+
+    const target = event.target;
+    const activeElement = document.activeElement;
+    const pasteIsInsideInput =
+      target instanceof Node &&
+      (target === currentInput || currentInput.contains(target) || activeElement === currentInput || currentInput.contains(activeElement));
+    if (!pasteIsInsideInput) return;
 
     const pastedText = event.clipboardData?.getData('text/plain') ?? '';
     console.log('[Warden] Extracted prompt text (paste):', pastedText);
@@ -269,7 +293,10 @@ async function init(adapter: SiteAdapter): Promise<void> {
     if (result.redactionCount === 0) return; // nothing sensitive -- let the paste proceed untouched
 
     event.preventDefault();
-    insertAtCursor(input, result.sanitizedText);
+    event.stopPropagation();
+
+    console.log('[Warden Paste Interceptor] Sanitized:', result);
+    insertAtCursor(currentInput, result.sanitizedText);
     overlay.setCount(mapper.size);
     chrome.runtime.sendMessage<WardenMessage>({ type: 'WARDEN_REDACTION_MADE', payload: { count: mapper.size } });
   }
@@ -300,7 +327,10 @@ async function init(adapter: SiteAdapter): Promise<void> {
     true
   );
   input.addEventListener('keydown', handleKeydown, true);
-  input.addEventListener('paste', handlePaste, true);
+  // Global + capture, not attached to `input` -- see handlePaste's doc
+  // comment for why the editor's own node-level paste handler would
+  // otherwise win the race and block us from ever seeing the event.
+  document.addEventListener('paste', handlePaste, true);
   input.addEventListener('input', handleInput);
 
   // Observe streaming responses and swap synthetic tokens back to real values.
