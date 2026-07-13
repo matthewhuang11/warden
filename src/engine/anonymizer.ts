@@ -114,7 +114,15 @@ export function anonymize(text: string, mapper: SyntheticMapper): AnonymizeResul
 
   const regexMatches = scanRegexEntities(text);
   const heuristicMatches = scanCapitalizedEntities(text, regexMatches);
-  const allMatches = resolveOverlaps([...regexMatches, ...heuristicMatches]);
+  const resolved = resolveOverlaps([...regexMatches, ...heuristicMatches]);
+
+  // Idempotency guard: a synthetic token we minted earlier this session (a
+  // fake email, a shifted dollar amount, ...) can be syntactically
+  // indistinguishable from real PII to the regex scanner. Without this, a
+  // second anonymize() pass over already-sanitized text (e.g. from a
+  // duplicate submit) would re-detect and re-tokenize its own output,
+  // cascading with every re-run.
+  const allMatches = resolved.filter((match) => mapper.reveal(match.value) === undefined);
 
   let sanitizedText = text;
   const rightToLeft = allMatches.slice().sort((a, b) => b.startIndex - a.startIndex);

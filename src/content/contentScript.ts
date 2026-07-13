@@ -172,8 +172,7 @@ async function init(adapter: SiteAdapter): Promise<void> {
   // TS can't narrow `inputEl` through) get a properly-typed reference.
   const input: HTMLElement = inputEl;
 
-  const sendBtn = adapter.getSendButton();
-  if (!sendBtn) {
+  if (!adapter.getSendButton()) {
     console.warn(`[Warden] Could not find the send button on ${adapter.name}; falling back to Enter-key send only.`);
   }
 
@@ -208,8 +207,14 @@ async function init(adapter: SiteAdapter): Promise<void> {
 
   function triggerSend(): void {
     bypassNext = true;
-    if (sendBtn && !(sendBtn as HTMLButtonElement).disabled) {
-      sendBtn.click();
+    // Re-queried fresh rather than using a cached reference: ChatGPT swaps
+    // this button's DOM node (e.g. toggling send/stop icons), and clicking a
+    // stale detached node silently does nothing while still consuming
+    // bypassNext -- that was causing the auto-resend to fail open, forcing a
+    // manual retry that re-ran anonymize() over already-sanitized text.
+    const currentSendBtn = adapter.getSendButton();
+    if (currentSendBtn && currentSendBtn.isConnected && !(currentSendBtn as HTMLButtonElement).disabled) {
+      currentSendBtn.click();
       return;
     }
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
@@ -279,7 +284,21 @@ async function init(adapter: SiteAdapter): Promise<void> {
     readPromptText(adapter, input, 'typing');
   }
 
-  sendBtn?.addEventListener('click', handleSubmitAttempt, true);
+  // Delegated rather than attached to a single captured button reference --
+  // re-resolves the current send button on every click, so it keeps working
+  // even if the platform swaps out that DOM node (see triggerSend() above).
+  document.addEventListener(
+    'click',
+    (event) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      const currentSendBtn = adapter.getSendButton();
+      if (currentSendBtn && (target === currentSendBtn || currentSendBtn.contains(target))) {
+        handleSubmitAttempt(event);
+      }
+    },
+    true
+  );
   input.addEventListener('keydown', handleKeydown, true);
   input.addEventListener('paste', handlePaste, true);
   input.addEventListener('input', handleInput);

@@ -72,6 +72,43 @@ describe('anonymize: combined categories in one message', () => {
   });
 });
 
+describe('anonymize: idempotency against its own synthetic tokens', () => {
+  test('re-running anonymize on already-sanitized text is a no-op', () => {
+    const mapper = new SyntheticMapper();
+    const original = 'Contact Mark Davis at mark.davis@stripe.com about the $450,000 offer.';
+    const first = anonymize(original, mapper);
+    expect(first.redactionCount).toBeGreaterThan(0);
+
+    const second = anonymize(first.sanitizedText, mapper);
+    expect(second.sanitizedText).toBe(first.sanitizedText);
+    expect(second.redactionCount).toBe(0);
+  });
+
+  test('a synthetic email token is not re-detected as a fresh EMAIL match', () => {
+    const mapper = new SyntheticMapper();
+    const token = mapper.getOrCreate('jane@example.com', 'EMAIL');
+    const result = anonymize(`Reach out to ${token} please.`, mapper);
+    expect(result.redactionCount).toBe(0);
+    expect(result.sanitizedText).toBe(`Reach out to ${token} please.`);
+  });
+
+  test('a synthetic dollar amount is not re-detected as a fresh MONEY match', () => {
+    const mapper = new SyntheticMapper();
+    const token = mapper.getOrCreate('$450,000', 'MONEY');
+    const result = anonymize(`The offer is ${token} total.`, mapper);
+    expect(result.redactionCount).toBe(0);
+    expect(result.sanitizedText).toBe(`The offer is ${token} total.`);
+  });
+
+  test('a genuinely new entity alongside an old token is still redacted', () => {
+    const mapper = new SyntheticMapper();
+    const first = anonymize('Contact jane@example.com about it.', mapper);
+    const second = anonymize(`${first.sanitizedText} Also loop in john@example.com.`, mapper);
+    expect(second.redactionCount).toBe(1);
+    expect(second.sanitizedText).not.toContain('john@example.com');
+  });
+});
+
 describe('anonymize: no sensitive content', () => {
   test('returns the original text unchanged', () => {
     const mapper = new SyntheticMapper();
