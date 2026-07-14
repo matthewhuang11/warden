@@ -37,9 +37,14 @@ export async function loadLanguage(dialect: Dialect): Promise<Parser.Language> {
   return tsxLanguage;
 }
 
-export async function createParser(dialect: Dialect): Promise<Parser> {
+const parsers = new Map<Dialect, Parser>();
+
+export async function getParser(dialect: Dialect): Promise<Parser> {
+  const cached = parsers.get(dialect);
+  if (cached) return cached;
   const language = await loadLanguage(dialect);
   const parser = new Parser();
   parser.setLanguage(language);
+  parsers.set(dialect, parser);
   return parser;
 }
