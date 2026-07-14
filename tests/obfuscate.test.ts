@@ -123,4 +123,50 @@ describe('obfuscateCode', () => {
     // snippet's scope) is left untouched.
     expect(result.output).toContain("console.log('outer');");
   });
+
+  it('strips cat -n line-number prefixes (as produced by the Read tool) before parsing and restores them after renaming', async () => {
+    const source = ['1\tconst total = computeTotal(items);', '2\tconsole.log(total);'].join('\n');
+    const map = new RenameMap();
+    const result = await obfuscateCode(source, map);
+
+    expect(result.dialect).toBe('typescript');
+    expect(result.renamed).toBe(true);
+    expect(result.output).toBe(['1\tconst var_1 = computeTotal(items);', '2\tconsole.log(var_1);'].join('\n'));
+  });
+
+  it('strips padded cat -n prefixes (real Read tool output, right-aligned line numbers) and preserves the padding on restore', async () => {
+    const source = ['     1\tfunction build() {', '     2\t  let x = 1;', '     3\t  return x;', '     4\t}'].join(
+      '\n',
+    );
+    const map = new RenameMap();
+    const result = await obfuscateCode(source, map);
+
+    expect(result.renamed).toBe(true);
+    expect(result.output).toBe(
+      ['     1\tfunction func_1() {', '     2\t  let var_1 = 1;', '     3\t  return var_1;', '     4\t}'].join('\n'),
+    );
+  });
+
+  it('supports a Read offset (line numbers not starting at 1) as long as they are sequential', async () => {
+    const source = ['41\tconst width = 10;', '42\tconst box = { width };'].join('\n');
+    const map = new RenameMap();
+    const result = await obfuscateCode(source, map);
+
+    expect(result.output).toBe(['41\tconst var_1 = 10;', '42\tconst var_2 = { var_1 };'].join('\n'));
+  });
+
+  it('does not misfire on ordinary code that merely starts one line with a number and a tab', async () => {
+    // Only the first line looks like a numbered prefix; since not every
+    // line matches, detection declines to strip anything. The leftover
+    // leading "1\t" isn't valid syntax on its own (no line break for ASI to
+    // kick in before "const"), so this correctly falls through to the same
+    // untouched-source fallback as any other unparseable input.
+    const source = '1\tconst total = computeTotal(items);\nconsole.log(total);';
+    const map = new RenameMap();
+    const result = await obfuscateCode(source, map);
+
+    expect(result.renamed).toBe(false);
+    expect(result.dialect).toBeNull();
+    expect(result.output).toBe(source);
+  });
 });
