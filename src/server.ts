@@ -5,6 +5,8 @@ import { config } from './config.js';
 import { logger } from './log.js';
 import { transformRequestBody } from './obfuscate/transformRequestBody.js';
 import { sessionRenameMap } from './session.js';
+import { rehydrateSseStream } from './rehydrate/sseRehydrate.js';
+import { rehydrateJsonValue } from './rehydrate/rehydrateJson.js';
 
 // Headers that must not be blindly forwarded between hops: either they
 // describe the transport of *this* connection (and would be wrong for the
@@ -127,14 +129,45 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
 
   res.writeHead(upstreamResponse.status, buildResponseHeaders(upstreamResponse));
 
-  if (!upstreamResponse.body) {
-    res.end();
+  const logForwarded = () =>
     logger.info('request.forwarded', {
       method,
       path,
       status: upstreamResponse.status,
       durationMs: Date.now() - start,
     });
+
+  if (!upstreamResponse.body) {
+    res.end();
+    logForwarded();
+    return;
+  }
+
+  const contentType = upstreamResponse.headers.get('content-type') ?? '';
+
+  if (shouldObfuscate && contentType.includes('text/event-stream')) {
+    const upstreamNodeStream = Readable.fromWeb(upstreamResponse.body as import('node:stream/web').ReadableStream);
+    const rehydratedStream = Readable.from(rehydrateSseStream(upstreamNodeStream, sessionRenameMap));
+    rehydratedStream.on('error', (err) => {
+      logger.error('response.stream_error', { method, path, error: String(err) });
+      res.destroy(err);
+    });
+    rehydratedStream.on('end', logForwarded);
+    rehydratedStream.pipe(res);
+    return;
+  }
+
+  if (shouldObfuscate && contentType.includes('application/json')) {
+    const rawText = await upstreamResponse.text();
+    let output = rawText;
+    try {
+      const parsed = JSON.parse(rawText);
+      output = JSON.stringify(rehydrateJsonValue(parsed, sessionRenameMap));
+    } catch (err) {
+      logger.warn('rehydrate.response_not_json', { method, path, error: String(err) });
+    }
+    res.end(output);
+    logForwarded();
     return;
   }
 
@@ -143,13 +176,6 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
     logger.error('response.stream_error', { method, path, error: String(err) });
     res.destroy(err);
   });
-  nodeStream.on('end', () => {
-    logger.info('request.forwarded', {
-      method,
-      path,
-      status: upstreamResponse.status,
-      durationMs: Date.now() - start,
-    });
-  });
+  nodeStream.on('end', logForwarded);
   nodeStream.pipe(res);
 }
