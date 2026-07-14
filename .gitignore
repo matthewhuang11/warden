@@ -1,8 +1,6 @@
 node_modules/
 dist/
-dist_dev/
-.vite/
 *.log
 .DS_Store
-web-ext-artifacts/
-*.zip
+.env
+.env.local

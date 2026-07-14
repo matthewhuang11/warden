@@ -1,0 +1,28 @@
+{
+  "name": "warden-proxy",
+  "version": "0.1.0",
+  "description": "Local proxy for Claude Code / Cursor that obfuscates local identifiers before requests leave the machine and rehydrates them on the way back.",
+  "type": "module",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "web-tree-sitter": "^0.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tree-sitter-wasms": "^0.1.11",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
