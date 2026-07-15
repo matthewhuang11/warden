@@ -211,6 +211,56 @@ describe('obfuscateCode', () => {
     expect(result.output).toContain("fetch('/api/data');");
   });
 
+  it('handles a class with a destructured-default constructor param, this.foo references, and an async try/catch loop', async () => {
+    const source = [
+      'class ApiClient {',
+      '  constructor({ baseUrl, retries = 2 } = {}) {',
+      '    this.baseUrl = baseUrl;',
+      '    this.retries = retries;',
+      '  }',
+      '',
+      '  async fetchData(id) {',
+      '    let attempt = 0;',
+      '    while (attempt <= this.retries) {',
+      '      try {',
+      '        const response = await fetch(`${this.baseUrl}/${id}`);',
+      '        return await response.json();',
+      '      } catch (err) {',
+      '        attempt += 1;',
+      '        if (attempt > this.retries) throw err;',
+      '      }',
+      '    }',
+      '  }',
+      '}',
+    ].join('\n');
+    const map = new RenameMap();
+    const result = await obfuscateCode(source, map);
+
+    expect(result.output).toBe(
+      [
+        'class class_1 {',
+        '  constructor({ baseUrl, retries = 2 } = {}) {',
+        '    this.baseUrl = baseUrl;',
+        '    this.retries = retries;',
+        '  }',
+        '',
+        '  async fetchData(id) {',
+        '    let var_1 = 0;',
+        '    while (var_1 <= this.retries) {',
+        '      try {',
+        '        const var_2 = await fetch(`${this.baseUrl}/${id}`);',
+        '        return await var_2.json();',
+        '      } catch (err) {',
+        '        var_1 += 1;',
+        '        if (var_1 > this.retries) throw err;',
+        '      }',
+        '    }',
+        '  }',
+        '}',
+      ].join('\n'),
+    );
+  });
+
   it('does not misfire on ordinary code that merely starts one line with a number and a tab', async () => {
     // Only the first line looks like a numbered prefix; since not every
     // line matches, detection declines to strip anything. The leftover
