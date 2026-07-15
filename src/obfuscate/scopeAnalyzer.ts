@@ -1,4 +1,5 @@
 import type Parser from 'web-tree-sitter';
+import type { RenameMap } from './renameMap.js';
 
 export type DeclKind = 'function' | 'variable' | 'class';
 
@@ -8,11 +9,13 @@ export interface Declaration {
   kind: DeclKind;
 }
 
-export interface RenameSite {
-  startIndex: number;
-  endIndex: number;
-  declId: string;
-}
+// A site resolved to a declaration found in *this* parse ('decl'), or one
+// that has no local binding at all but whose name was already established
+// as renameable earlier in the session ('known') — e.g. a follow-up
+// tool_result that merely calls a function declared in an earlier turn.
+export type RenameSite =
+  | { startIndex: number; endIndex: number; via: 'decl'; declId: string }
+  | { startIndex: number; endIndex: number; via: 'known'; synthetic: string };
 
 export interface ScopeAnalysis {
   declarations: Declaration[];
@@ -65,8 +68,17 @@ const REFERENCE_TYPES = new Set(['identifier', 'shorthand_property_identifier', 
  * their textual position (hoisting, forward calls between sibling
  * functions, closures): pass 1 populates every scope's bindings across the
  * whole tree, pass 2 resolves references against the now-complete scopes.
+ *
+ * `renameMap` is the session's persistent name -> synthetic mapping. A
+ * reference that resolves to nothing in this parse (no local or opaque
+ * binding anywhere up the scope chain) would normally be a free reference
+ * to a global/builtin and is left alone — but if the session already
+ * renamed this exact name in an earlier request (e.g. a function declared
+ * in one file and merely called in another), reuse that synthetic name so
+ * the same identifier stays consistent across turns instead of leaking the
+ * real name on any turn that doesn't redeclare it.
  */
-export function analyzeScopes(root: Parser.SyntaxNode): ScopeAnalysis {
+export function analyzeScopes(root: Parser.SyntaxNode, renameMap: RenameMap): ScopeAnalysis {
   const declarations: Declaration[] = [];
   // nodeId -> declId for renameable decl sites, or null for opaque decl sites.
   const declSiteNodeIds = new Map<number, string | null>();
@@ -294,15 +306,26 @@ export function analyzeScopes(root: Parser.SyntaxNode): ScopeAnalysis {
     if (declSiteNodeIds.has(node.id)) {
       const declId = declSiteNodeIds.get(node.id);
       if (declId) {
-        sites.push({ startIndex: node.startIndex, endIndex: node.endIndex, declId });
+        sites.push({ startIndex: node.startIndex, endIndex: node.endIndex, via: 'decl', declId });
       }
       return;
     }
 
     if (REFERENCE_TYPES.has(node.type)) {
       const binding = scope.lookup(node.text);
-      if (binding && binding.renameable) {
-        sites.push({ startIndex: node.startIndex, endIndex: node.endIndex, declId: binding.id });
+      if (binding) {
+        if (binding.renameable) {
+          sites.push({ startIndex: node.startIndex, endIndex: node.endIndex, via: 'decl', declId: binding.id });
+        }
+        return;
+      }
+
+      // No binding anywhere in the scope chain — a genuine free reference
+      // within this parse. Only rename it if the session already committed
+      // to a synthetic name for this exact identifier text elsewhere.
+      const known = renameMap.get(node.text);
+      if (known) {
+        sites.push({ startIndex: node.startIndex, endIndex: node.endIndex, via: 'known', synthetic: known });
       }
       return;
     }

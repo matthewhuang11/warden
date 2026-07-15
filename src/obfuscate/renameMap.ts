@@ -20,6 +20,11 @@ export class RenameMap {
   private readonly toOriginal = new Map<string, string>();
   private readonly countersByKind = new Map<DeclKind, number>();
 
+  /** Looks up an existing mapping without creating one. */
+  get(originalName: string): string | undefined {
+    return this.toSynthetic.get(originalName);
+  }
+
   getOrCreate(originalName: string, kind: DeclKind): string {
     const existing = this.toSynthetic.get(originalName);
     if (existing) return existing;

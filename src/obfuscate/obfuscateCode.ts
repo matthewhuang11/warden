@@ -65,7 +65,7 @@ export async function obfuscateCode(source: string, renameMap: RenameMap): Promi
       continue;
     }
 
-    const analysis = analyzeScopes(tree.rootNode);
+    const analysis = analyzeScopes(tree.rootNode, renameMap);
     const { output, renamedCount } = applyRenames(workingSource, analysis, renameMap);
     const restored = lineNumbered ? restoreLineNumberPrefixes(output, lineNumbered.prefixes) : output;
     if (restored === null) {

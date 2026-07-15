@@ -13,7 +13,7 @@ export interface ApplyRenamesResult {
  * (whitespace, comments, quote style) is preserved exactly.
  */
 export function applyRenames(source: string, analysis: ScopeAnalysis, renameMap: RenameMap): ApplyRenamesResult {
-  if (analysis.declarations.length === 0 || analysis.sites.length === 0) {
+  if (analysis.sites.length === 0) {
     return { output: source, renamedCount: 0 };
   }
 
@@ -25,11 +25,13 @@ export function applyRenames(source: string, analysis: ScopeAnalysis, renameMap:
   const orderedSites = [...analysis.sites].sort((a, b) => b.startIndex - a.startIndex);
 
   let output = source;
+  let renamedCount = 0;
   for (const site of orderedSites) {
-    const synthetic = syntheticByDeclId.get(site.declId);
+    const synthetic = site.via === 'known' ? site.synthetic : syntheticByDeclId.get(site.declId);
     if (!synthetic) continue;
     output = output.slice(0, site.startIndex) + synthetic + output.slice(site.endIndex);
+    renamedCount += 1;
   }
 
-  return { output, renamedCount: orderedSites.length };
+  return { output, renamedCount };
 }
