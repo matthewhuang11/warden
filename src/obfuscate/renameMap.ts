@@ -50,4 +50,9 @@ export class RenameMap {
   syntheticNames(): string[] {
     return [...this.toOriginal.keys()];
   }
+
+  /** Every original name the session has already committed to a synthetic for. */
+  originalNames(): string[] {
+    return [...this.toSynthetic.keys()];
+  }
 }

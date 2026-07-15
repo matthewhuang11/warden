@@ -1,4 +1,5 @@
 import { obfuscateCode } from './obfuscateCode.js';
+import { obfuscateKnownNames } from './obfuscateKnownNames.js';
 import type { RenameMap } from './renameMap.js';
 
 export interface TransformStats {
@@ -9,6 +10,11 @@ export interface TransformStats {
 
 const EDIT_TOOL_NAMES = new Set(['Edit']);
 const WRITE_TOOL_NAMES = new Set(['Write']);
+// Bash output (grep/cat/ls/arbitrary command output) is often fragmentary,
+// non-code text that a tree-sitter parse would just reject wholesale —
+// these get a plain known-names-only substitution instead, see
+// obfuscateBashResultText below.
+const BASH_TOOL_NAMES = new Set(['Bash']);
 
 /**
  * Walks an Anthropic Messages API request body looking for source code in
@@ -28,6 +34,8 @@ export async function transformRequestBody(
     return { body, stats };
   }
 
+  const toolNameById = buildToolNameById(body.messages);
+
   for (const message of body.messages) {
     if (!isRecord(message) || !Array.isArray(message.content)) continue;
 
@@ -45,12 +53,19 @@ export async function transformRequestBody(
       }
 
       if (block.type === 'tool_result') {
+        const toolName = typeof block.tool_use_id === 'string' ? toolNameById.get(block.tool_use_id) : undefined;
+        const isBash = toolName !== undefined && BASH_TOOL_NAMES.has(toolName);
+
         if (typeof block.content === 'string') {
-          block.content = await obfuscateText(block.content, renameMap, stats);
+          block.content = isBash
+            ? obfuscateBashResultText(block.content, renameMap, stats)
+            : await obfuscateText(block.content, renameMap, stats);
         } else if (Array.isArray(block.content)) {
           for (const inner of block.content) {
             if (isRecord(inner) && inner.type === 'text' && typeof inner.text === 'string') {
-              inner.text = await obfuscateText(inner.text, renameMap, stats);
+              inner.text = isBash
+                ? obfuscateBashResultText(inner.text, renameMap, stats)
+                : await obfuscateText(inner.text, renameMap, stats);
             }
           }
         }
@@ -59,6 +74,22 @@ export async function transformRequestBody(
   }
 
   return { body, stats };
+}
+
+/** Maps each tool_use block's id to its tool name, across the whole body,
+ * so a later tool_result (which only carries tool_use_id) can be matched
+ * back to the tool that produced it. */
+function buildToolNameById(messages: unknown[]): Map<string, string> {
+  const toolNameById = new Map<string, string>();
+  for (const message of messages) {
+    if (!isRecord(message) || !Array.isArray(message.content)) continue;
+    for (const block of message.content) {
+      if (isRecord(block) && block.type === 'tool_use' && typeof block.id === 'string' && typeof block.name === 'string') {
+        toolNameById.set(block.id, block.name);
+      }
+    }
+  }
+  return toolNameById;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -84,4 +115,14 @@ async function obfuscateText(text: string, renameMap: RenameMap, stats: Transfor
     stats.totalIdentifiersRenamed += result.renamedCount;
   }
   return result.output;
+}
+
+function obfuscateBashResultText(text: string, renameMap: RenameMap, stats: TransformStats): string {
+  stats.blocksScanned += 1;
+  const { output, renamedCount } = obfuscateKnownNames(text, renameMap);
+  if (renamedCount > 0) {
+    stats.blocksRenamed += 1;
+    stats.totalIdentifiersRenamed += renamedCount;
+  }
+  return output;
 }

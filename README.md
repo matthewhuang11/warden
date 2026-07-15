@@ -80,6 +80,30 @@ program), it's forwarded untouched rather than risk corrupting it — watch
 the logs for `obfuscate.parse_failed` to see how often this happens in
 practice.
 
+`tool_result` content is handled differently depending on which tool
+produced it:
+
+- **`Read`/`Edit`/`Write` results** (and anything else not listed below)
+  are parsed as a full JS/TS file via tree-sitter, the same as `Edit`/
+  `Write` inputs — this is what discovers *new* renameable names.
+- **`Bash` results** (grep/cat/ls/arbitrary command output) are not
+  parsed at all — they're rarely a complete, valid program, so a
+  tree-sitter parse would just fail and leave everything untouched
+  anyway. Instead, a plain word-boundary substitution reuses whatever
+  names the session has *already* discovered from an earlier `Read`/
+  `Edit`/`Write` in the same conversation (e.g. renaming `data` won't
+  touch `database` or `dataset`). See **Known limitations** below.
+
+## Known limitations
+
+- **Bash output only protects already-known names.** Because `Bash`
+  `tool_result` content skips AST parsing (see above), it can never be
+  the *first* place a sensitive name is discovered — only names already
+  in the session's rename map from an earlier `Read`/`Edit`/`Write` get
+  substituted. If a real identifier's first appearance in a conversation
+  is inside `grep`/`cat`/`ls` output rather than a `Read` of the file
+  itself, that first occurrence is sent upstream unobfuscated.
+
 ## Watching it work
 
 Structured JSON logs go to stdout, one line per event:
