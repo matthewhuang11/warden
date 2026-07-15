@@ -340,4 +340,48 @@ describe('obfuscateCode', () => {
     expect(result.dialect).toBeNull();
     expect(result.output).toBe(source);
   });
+
+  it('skips parsing entirely for a source file over the line-count ceiling, leaving it untouched', async () => {
+    // Real-world timing (measured against this exact codebase) showed
+    // tree-sitter parse time scales worse than linearly and blocks Node's
+    // single event-loop thread the whole time: ~660ms at 5k lines, ~1.3s at
+    // 10k, ~15s at 40k. A large generated/vendored file would freeze every
+    // other in-flight request for however long its parse takes, so sources
+    // over the ceiling skip parsing entirely rather than risk that.
+    const lines: string[] = [];
+    for (let i = 0; i < 6000; i++) {
+      lines.push(`function fn${i}() { return ${i}; }`);
+    }
+    const source = lines.join('\n');
+    const map = new RenameMap();
+
+    const start = performance.now();
+    const result = await obfuscateCode(source, map);
+    const elapsedMs = performance.now() - start;
+
+    expect(result.renamed).toBe(false);
+    expect(result.dialect).toBeNull();
+    expect(result.output).toBe(source);
+    // The whole point of the guard is to make this decision cheap — a full
+    // parse of 6000 declarations took ~900ms in isolated timing; skipping
+    // it should resolve in a tiny fraction of that.
+    expect(elapsedMs).toBeLessThan(200);
+  });
+
+  it('still parses and renames a file just under the line-count ceiling', async () => {
+    const lines: string[] = ['function build() {', '  const total = 0;', '  return total;', '}'];
+    for (let i = 0; i < 4000; i++) {
+      lines.push(`// padding line ${i}`);
+    }
+    const source = lines.join('\n');
+    const map = new RenameMap();
+
+    const result = await obfuscateCode(source, map);
+
+    expect(result.renamed).toBe(true);
+    expect(result.dialect).toBe('typescript');
+    expect(result.output).toContain('function func_1() {');
+    expect(result.output).toContain('const var_1 = 0;');
+    expect(result.output).toContain('return var_1;');
+  });
 });

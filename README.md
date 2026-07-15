@@ -39,6 +39,7 @@ The server listens on `http://localhost:8787` by default.
 | `WARDEN_PORT` | `8787` | Local port the proxy listens on |
 | `WARDEN_UPSTREAM_BASE_URL` | `https://api.anthropic.com` | Where requests are forwarded |
 | `WARDEN_OBFUSCATION_DISABLED` | unset | Set to `1` to run as a pure passthrough (no obfuscation) |
+| `WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS` | `30000` | How long to wait for the upstream to start responding before failing the request with a `504` (see **Known limitations**) |
 
 ## Pointing Claude Code at it
 
@@ -103,6 +104,28 @@ produced it:
   substituted. If a real identifier's first appearance in a conversation
   is inside `grep`/`cat`/`ls` output rather than a `Read` of the file
   itself, that first occurrence is sent upstream unobfuscated.
+- **Very large files skip obfuscation entirely.** tree-sitter parsing runs
+  synchronously and blocks Node's single event-loop thread for however
+  long it takes — measured against this codebase, roughly 660ms at 5,000
+  lines, 1.3s at 10,000, and 15s at 40,000 (worse than linear, not a fixed
+  per-line cost), during which every other in-flight request is frozen.
+  Any source over 5,000 lines skips parsing entirely (logged as
+  `obfuscate.skipped_too_large`) and is forwarded completely unobfuscated
+  rather than risk blocking the proxy for seconds. There's no partial
+  handling — a 5,001-line file gets zero renaming, not "as much as fits."
+- **A hung/unreachable upstream fails after `WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS`
+  (default 30s), not immediately.** This only bounds the wait for the
+  *first* response byte — once headers arrive, a long legitimate streaming
+  completion is never cut off by it. A connection that drops mid-stream
+  (rather than never responding at all) is handled separately and
+  typically surfaces much faster, as a stream error.
+- **A pathologically deep JSON request body** (thousands of levels of
+  array/object nesting) can defeat `JSON.stringify` after obfuscation
+  (`RangeError: Maximum call stack size exceeded` — `JSON.parse` tolerates
+  this depth, `JSON.stringify` doesn't). This is caught and degrades to
+  forwarding the original request untouched (logged as
+  `obfuscate.transform_failed`), not a failed request — but it does mean
+  that specific request goes out unobfuscated.
 
 ## Watching it work
 
@@ -111,6 +134,9 @@ Structured JSON logs go to stdout, one line per event:
 - `obfuscate.request_transformed` — a request was scanned; `blocksScanned`/`blocksRenamed`/`totalIdentifiersRenamed`
 - `obfuscate.applied` — one code block was successfully renamed, with the grammar dialect used
 - `obfuscate.parse_failed` — a code block didn't parse in either grammar and was left untouched
+- `obfuscate.skipped_too_large` — a code block exceeded the line-count ceiling and was left untouched without attempting to parse it
+- `obfuscate.transform_failed` — obfuscating/re-serializing the request body threw unexpectedly; the original request was forwarded untouched instead
+- `request.upstream_timeout` — the upstream didn't respond within `WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS`; the client got a `504`
 - `request.forwarded` — every proxied request, with status and duration
 
 ## Development

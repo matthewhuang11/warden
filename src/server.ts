@@ -87,9 +87,20 @@ async function prepareObfuscatedBody(raw: Buffer, path: string): Promise<string 
     return raw;
   }
 
-  const { body: transformed, stats } = await transformRequestBody(parsed, sessionRenameMap);
-  logger.info('obfuscate.request_transformed', { path, ...stats });
-  return JSON.stringify(transformed);
+  // transformRequestBody is defensive about shape, but the body is
+  // client-controlled and JSON.stringify itself isn't immune to pathological
+  // input (e.g. it throws RangeError on extreme nesting depth, unlike
+  // JSON.parse). Anything unexpected here should degrade to forwarding the
+  // original request untouched rather than failing it outright — obfuscation
+  // is a best-effort privacy layer, not something worth blocking traffic for.
+  try {
+    const { body: transformed, stats } = await transformRequestBody(parsed, sessionRenameMap);
+    logger.info('obfuscate.request_transformed', { path, ...stats });
+    return JSON.stringify(transformed);
+  } catch (err) {
+    logger.error('obfuscate.transform_failed', { path, error: String(err) });
+    return raw;
+  }
 }
 
 async function handleRequest(req: IncomingMessage, res: import('node:http').ServerResponse): Promise<void> {
@@ -112,6 +123,17 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
   }
   const isStreamingBody = typeof ReadableStream !== 'undefined' && body instanceof ReadableStream;
 
+  // Bounds only the wait for response headers — a slow-or-unreachable
+  // upstream (accepted the connection but never replied) would otherwise
+  // hang this request forever, since fetch has no default timeout. Once
+  // headers arrive the timer is cleared and never fires again, so a long
+  // legitimate streaming completion afterward is never cut short by it.
+  const headersController = new AbortController();
+  const headersTimeout = setTimeout(
+    () => headersController.abort(new Error(`Upstream did not respond within ${config.upstreamHeadersTimeoutMs}ms`)),
+    config.upstreamHeadersTimeoutMs,
+  );
+
   let upstreamResponse: Response;
   try {
     upstreamResponse = await fetch(target, {
@@ -119,12 +141,20 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
       headers: buildForwardHeaders(req),
       body,
       duplex: isStreamingBody ? 'half' : undefined,
+      signal: headersController.signal,
     } as RequestInit);
   } catch (err) {
-    logger.error('request.upstream_unreachable', { method, path, error: String(err) });
-    res.writeHead(502, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ error: 'upstream_unreachable', message: String(err) }));
+    const timedOut = headersController.signal.aborted;
+    logger.error(timedOut ? 'request.upstream_timeout' : 'request.upstream_unreachable', {
+      method,
+      path,
+      error: String(err),
+    });
+    res.writeHead(timedOut ? 504 : 502, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: timedOut ? 'upstream_timeout' : 'upstream_unreachable', message: String(err) }));
     return;
+  } finally {
+    clearTimeout(headersTimeout);
   }
 
   res.writeHead(upstreamResponse.status, buildResponseHeaders(upstreamResponse));
