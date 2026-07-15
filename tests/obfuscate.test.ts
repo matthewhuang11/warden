@@ -155,6 +155,62 @@ describe('obfuscateCode', () => {
     expect(result.output).toBe(['41\tconst var_1 = 10;', '42\tconst var_2 = { var_1 };'].join('\n'));
   });
 
+  it('never renames names pulled out of a destructured CommonJS require', async () => {
+    const source = `const { foo, bar } = require('./utils');\nfoo();\nconsole.log(bar);`;
+    const map = new RenameMap();
+    const result = await obfuscateCode(source, map);
+
+    expect(result.output).toBe(source);
+  });
+
+  it('never renames names pulled out of a destructured ES import', async () => {
+    const source = `import { foo, bar } from './utils';\nfoo();\nconsole.log(bar);`;
+    const map = new RenameMap();
+    const result = await obfuscateCode(source, map);
+
+    expect(result.output).toBe(source);
+  });
+
+  it('resolves a variable shadowed by a same-named parameter and an unrelated same-named local independently, never confusing either with a real global', async () => {
+    const source = [
+      "const data = fetchData();",
+      '',
+      'function process(data) {',
+      '  return data.length;',
+      '}',
+      '',
+      'function summarize() {',
+      '  const data = transform();',
+      '  return data.count;',
+      '}',
+      '',
+      'console.log(data.length);',
+      "fetch('/api/data');",
+    ].join('\n');
+    const map = new RenameMap();
+    const result = await obfuscateCode(source, map);
+
+    // The outer `data` local is renamed everywhere it's actually referenced
+    // at the outer scope, including after the two function declarations.
+    expect(result.output).toContain('const var_1 = fetchData();');
+    expect(result.output).toContain('console.log(var_1.length);');
+
+    // `process`'s parameter shadows the outer local and is opaque — its
+    // body must never be touched, regardless of what the outer `data` did.
+    expect(result.output).toContain('function func_1(data) {\n  return data.length;\n}');
+
+    // `summarize`'s own local `data` is a separate declaration in an
+    // unrelated function; it's independently renameable and consistent
+    // within its own scope (same synthetic name as the outer `data` is
+    // expected, since the RenameMap keys by original name for round-trip
+    // safety — but it must never leak the *parameter's* opaque binding).
+    expect(result.output).toContain('function func_2() {\n  const var_1 = transform();\n  return var_1.count;\n}');
+
+    // A genuine free reference to the `fetch` global (never declared
+    // locally in this snippet) is left completely untouched.
+    expect(result.output).toContain("fetch('/api/data');");
+  });
+
   it('does not misfire on ordinary code that merely starts one line with a number and a tab', async () => {
     // Only the first line looks like a numbered prefix; since not every
     // line matches, detection declines to strip anything. The leftover
