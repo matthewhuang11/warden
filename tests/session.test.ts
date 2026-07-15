@@ -56,4 +56,31 @@ describe('sessionRenameMap persistence across requests', () => {
     expect(secondText).toContain(`${syntheticName}(pendingOrder)`);
     expect(secondText).not.toContain('processOrder');
   });
+
+  it('reuses the same synthetic name for a variable across two separate requests in the same session', async () => {
+    // Turn 1: declares and renames a variable.
+    const firstRequest = toolResultRequest(
+      'toolu_3',
+      ['const cachedConfig = loadConfig();', 'console.log(cachedConfig.env);'].join('\n'),
+    );
+    const { body: firstBody } = await transformRequestBody(firstRequest, sessionRenameMap);
+    const firstText = textOf(firstBody);
+
+    const declMatch = firstText.match(/const (var_\w+) = loadConfig\(\);/);
+    expect(declMatch).not.toBeNull();
+    const syntheticName = declMatch![1];
+    expect(firstText).not.toContain('cachedConfig');
+
+    // Turn 2: a separate request that only *reads* cachedConfig — no local
+    // declaration in this snippet at all, just a reference.
+    const secondRequest = toolResultRequest(
+      'toolu_4',
+      ["if (cachedConfig.env === 'prod') {", '  alertOncall();', '}'].join('\n'),
+    );
+    const { body: secondBody } = await transformRequestBody(secondRequest, sessionRenameMap);
+    const secondText = textOf(secondBody);
+
+    expect(secondText).toContain(`${syntheticName}.env === 'prod'`);
+    expect(secondText).not.toContain('cachedConfig');
+  });
 });
