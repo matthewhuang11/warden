@@ -29,7 +29,8 @@ export function applyRenames(source: string, analysis: ScopeAnalysis, renameMap:
   for (const site of orderedSites) {
     const synthetic = site.via === 'known' ? site.synthetic : syntheticByDeclId.get(site.declId);
     if (!synthetic) continue;
-    output = output.slice(0, site.startIndex) + synthetic + output.slice(site.endIndex);
+    const replacement = site.shorthandOriginalName ? `${site.shorthandOriginalName}: ${synthetic}` : synthetic;
+    output = output.slice(0, site.startIndex) + replacement + output.slice(site.endIndex);
     renamedCount += 1;
   }
 

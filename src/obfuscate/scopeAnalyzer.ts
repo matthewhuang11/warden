@@ -13,9 +13,16 @@ export interface Declaration {
 // that has no local binding at all but whose name was already established
 // as renameable earlier in the session ('known') — e.g. a follow-up
 // tool_result that merely calls a function declared in an earlier turn.
+//
+// `shorthandOriginalName` is set when the site is an object-literal
+// shorthand property (`{ foo }`, meaning `{ foo: foo }`) whose single token
+// serves as both key and value. Splicing the synthetic name in place of
+// that token would rename the key too (corrupting e.g. `module.exports = {
+// ApiClient }`), so these sites are rendered as an explicit `foo: synthetic`
+// pair instead, preserving the real key.
 export type RenameSite =
-  | { startIndex: number; endIndex: number; via: 'decl'; declId: string }
-  | { startIndex: number; endIndex: number; via: 'known'; synthetic: string };
+  | { startIndex: number; endIndex: number; via: 'decl'; declId: string; shorthandOriginalName?: string }
+  | { startIndex: number; endIndex: number; via: 'known'; synthetic: string; shorthandOriginalName?: string };
 
 export interface ScopeAnalysis {
   declarations: Declaration[];
@@ -312,10 +319,17 @@ export function analyzeScopes(root: Parser.SyntaxNode, renameMap: RenameMap): Sc
     }
 
     if (REFERENCE_TYPES.has(node.type)) {
+      const shorthandOriginalName = node.type === 'shorthand_property_identifier' ? node.text : undefined;
       const binding = scope.lookup(node.text);
       if (binding) {
         if (binding.renameable) {
-          sites.push({ startIndex: node.startIndex, endIndex: node.endIndex, via: 'decl', declId: binding.id });
+          sites.push({
+            startIndex: node.startIndex,
+            endIndex: node.endIndex,
+            via: 'decl',
+            declId: binding.id,
+            shorthandOriginalName,
+          });
         }
         return;
       }
@@ -325,7 +339,13 @@ export function analyzeScopes(root: Parser.SyntaxNode, renameMap: RenameMap): Sc
       // to a synthetic name for this exact identifier text elsewhere.
       const known = renameMap.get(node.text);
       if (known) {
-        sites.push({ startIndex: node.startIndex, endIndex: node.endIndex, via: 'known', synthetic: known });
+        sites.push({
+          startIndex: node.startIndex,
+          endIndex: node.endIndex,
+          via: 'known',
+          synthetic: known,
+          shorthandOriginalName,
+        });
       }
       return;
     }

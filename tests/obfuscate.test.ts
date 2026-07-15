@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { obfuscateCode } from '../src/obfuscate/obfuscateCode.js';
 import { RenameMap } from '../src/obfuscate/renameMap.js';
+import { rehydrateText } from '../src/rehydrate/rehydrateText.js';
 
 describe('obfuscateCode', () => {
   it('renames a locally declared variable and all its references', async () => {
@@ -72,12 +73,16 @@ describe('obfuscateCode', () => {
     );
   });
 
-  it('renames object-literal shorthand references to a renamed local', async () => {
+  it('expands an object-literal shorthand reference to a renamed local into explicit key: value form, preserving the real key', async () => {
     const source = `const width = 10;\nconst box = { width };`;
     const map = new RenameMap();
     const result = await obfuscateCode(source, map);
 
-    expect(result.output).toBe('const var_1 = 10;\nconst var_2 = { var_1 };');
+    // Shorthand `{ width }` means `{ width: width }` — the key and value
+    // share one token, so splicing in the synthetic name in place would
+    // rename the key too. Expanding to explicit form keeps the real key
+    // (`width`) visible and only obfuscates the value.
+    expect(result.output).toBe('const var_1 = 10;\nconst var_2 = { width: var_1 };');
   });
 
   it('renames class declarations and their references consistently', async () => {
@@ -152,7 +157,7 @@ describe('obfuscateCode', () => {
     const map = new RenameMap();
     const result = await obfuscateCode(source, map);
 
-    expect(result.output).toBe(['41\tconst var_1 = 10;', '42\tconst var_2 = { var_1 };'].join('\n'));
+    expect(result.output).toBe(['41\tconst var_1 = 10;', '42\tconst var_2 = { width: var_1 };'].join('\n'));
   });
 
   it('never renames names pulled out of a destructured CommonJS require', async () => {
@@ -259,6 +264,66 @@ describe('obfuscateCode', () => {
         '}',
       ].join('\n'),
     );
+  });
+
+  it('expands a shorthand export list referencing renamed classes, preserving the real export names', async () => {
+    const source = [
+      'class ApiClient {}',
+      'class ApiError extends Error {}',
+      'module.exports = { ApiClient, ApiError };',
+    ].join('\n');
+    const map = new RenameMap();
+    const result = await obfuscateCode(source, map);
+
+    expect(result.output).toBe(
+      ['class class_1 {}', 'class class_2 extends Error {}', 'module.exports = { ApiClient: class_1, ApiError: class_2 };'].join(
+        '\n',
+      ),
+    );
+  });
+
+  it('expands a shorthand object literal elsewhere in a function body, preserving the real key', async () => {
+    const source = [
+      'function summarize(order) {',
+      '  const total = computeTotal(order);',
+      '  return { total, order };',
+      '}',
+    ].join('\n');
+    const map = new RenameMap();
+    const result = await obfuscateCode(source, map);
+
+    expect(result.output).toBe(
+      [
+        'function func_1(order) {',
+        '  const var_1 = computeTotal(order);',
+        '  return { total: var_1, order };',
+        '}',
+      ].join('\n'),
+    );
+  });
+
+  it('round-trips a shorthand export list through obfuscate then rehydrate back to byte-identical source', async () => {
+    const source = [
+      'class ApiClient {}',
+      'class ApiError extends Error {}',
+      'module.exports = { ApiClient, ApiError };',
+    ].join('\n');
+    const map = new RenameMap();
+    const obfuscated = await obfuscateCode(source, map);
+    const rehydrated = rehydrateText(obfuscated.output, map);
+
+    expect(obfuscated.output).not.toBe(source);
+    expect(rehydrated).toBe(source);
+  });
+
+  it('round-trips a shorthand object literal in a function body through obfuscate then rehydrate back to byte-identical source', async () => {
+    const source = `function build() {\n  const width = 10;\n  const box = { width };\n  return box;\n}`;
+    const map = new RenameMap();
+    const obfuscated = await obfuscateCode(source, map);
+    const rehydrated = rehydrateText(obfuscated.output, map);
+
+    expect(obfuscated.output).not.toBe(source);
+    expect(rehydrated).toBe(source);
   });
 
   it('does not misfire on ordinary code that merely starts one line with a number and a tab', async () => {
