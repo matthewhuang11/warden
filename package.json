@@ -2,6 +2,7 @@
   "name": "warden-proxy",
   "version": "0.1.0",
   "description": "Local proxy for Claude Code / Cursor that obfuscates local identifiers before requests leave the machine and rehydrates them on the way back.",
+  "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
