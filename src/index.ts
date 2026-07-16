@@ -1,6 +1,7 @@
 import { config } from './config.js';
 import { logger } from './log.js';
 import { createProxyServer } from './server.js';
+import { printBanner, printPortInUseError, printStartupError, printUpstreamUnreachableWarning } from './consoleOutput.js';
 
 const UPSTREAM_REACHABILITY_CHECK_TIMEOUT_MS = 5000;
 
@@ -12,21 +13,11 @@ const server = createProxyServer();
 // stack trace with no indication of what to actually do about it.
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(
-      [
-        '',
-        `Error: port ${config.port} is already in use.`,
-        '',
-        'Another process is already listening there — either stop it, or run Warden on a different port:',
-        '',
-        `  WARDEN_PORT=<a free port> npm start`,
-        '',
-      ].join('\n'),
-    );
+    printPortInUseError(config.port);
     process.exit(1);
   }
   logger.error('server.listen_failed', { port: config.port, error: String(err) });
-  console.error(`\nError: failed to start Warden on port ${config.port}: ${err.message}\n`);
+  printStartupError(config.port, err.message);
   process.exit(1);
 });
 
@@ -36,6 +27,7 @@ server.listen(config.port, () => {
     upstream: config.upstreamBaseUrl,
     obfuscationEnabled: config.obfuscationEnabled,
   });
+  printBanner(config.port, config.upstreamBaseUrl, config.obfuscationEnabled);
   void checkUpstreamReachable();
 });
 
@@ -55,16 +47,7 @@ async function checkUpstreamReachable(): Promise<void> {
     });
   } catch (err) {
     logger.warn('server.upstream_unreachable_at_startup', { upstream: config.upstreamBaseUrl, error: String(err) });
-    console.error(
-      [
-        '',
-        `Warning: could not reach upstream ${config.upstreamBaseUrl} (${String(err)}).`,
-        '',
-        'Warden will keep running, but requests will fail until this is reachable — check your',
-        'network connection or WARDEN_UPSTREAM_BASE_URL.',
-        '',
-      ].join('\n'),
-    );
+    printUpstreamUnreachableWarning(config.upstreamBaseUrl, String(err));
   }
 }
 

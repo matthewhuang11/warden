@@ -2,10 +2,19 @@ import { obfuscateCode } from './obfuscateCode.js';
 import { obfuscateKnownNames } from './obfuscateKnownNames.js';
 import type { RenameMap } from './renameMap.js';
 
+// A human-readable label for one obfuscated block (e.g. a file path or
+// "Bash: <command>"), purely for presentation — doesn't affect what gets
+// renamed or how, only what a caller can report about it afterward.
+export interface ObfuscatedBlockSummary {
+  label: string;
+  renamedCount: number;
+}
+
 export interface TransformStats {
   blocksScanned: number;
   blocksRenamed: number;
   totalIdentifiersRenamed: number;
+  blocks: ObfuscatedBlockSummary[];
 }
 
 const EDIT_TOOL_NAMES = new Set(['Edit']);
@@ -28,13 +37,13 @@ export async function transformRequestBody(
   body: unknown,
   renameMap: RenameMap,
 ): Promise<{ body: unknown; stats: TransformStats }> {
-  const stats: TransformStats = { blocksScanned: 0, blocksRenamed: 0, totalIdentifiersRenamed: 0 };
+  const stats: TransformStats = { blocksScanned: 0, blocksRenamed: 0, totalIdentifiersRenamed: 0, blocks: [] };
 
   if (!isRecord(body) || !Array.isArray(body.messages)) {
     return { body, stats };
   }
 
-  const toolNameById = buildToolNameById(body.messages);
+  const toolCallById = buildToolCallById(body.messages);
 
   for (const message of body.messages) {
     if (!isRecord(message) || !Array.isArray(message.content)) continue;
@@ -43,29 +52,31 @@ export async function transformRequestBody(
       if (!isRecord(block)) continue;
 
       if (block.type === 'tool_use' && typeof block.name === 'string' && isRecord(block.input)) {
+        const label = deriveLabel(block.name, block.input);
         if (EDIT_TOOL_NAMES.has(block.name)) {
-          await obfuscateField(block.input, 'old_string', renameMap, stats);
-          await obfuscateField(block.input, 'new_string', renameMap, stats);
+          await obfuscateField(block.input, 'old_string', renameMap, stats, label);
+          await obfuscateField(block.input, 'new_string', renameMap, stats, label);
         } else if (WRITE_TOOL_NAMES.has(block.name)) {
-          await obfuscateField(block.input, 'content', renameMap, stats);
+          await obfuscateField(block.input, 'content', renameMap, stats, label);
         }
         continue;
       }
 
       if (block.type === 'tool_result') {
-        const toolName = typeof block.tool_use_id === 'string' ? toolNameById.get(block.tool_use_id) : undefined;
-        const isBash = toolName !== undefined && BASH_TOOL_NAMES.has(toolName);
+        const toolCall = typeof block.tool_use_id === 'string' ? toolCallById.get(block.tool_use_id) : undefined;
+        const isBash = toolCall !== undefined && BASH_TOOL_NAMES.has(toolCall.name);
+        const label = toolCall ? deriveLabel(toolCall.name, toolCall.input) : 'tool_result';
 
         if (typeof block.content === 'string') {
           block.content = isBash
-            ? obfuscateBashResultText(block.content, renameMap, stats)
-            : await obfuscateText(block.content, renameMap, stats);
+            ? obfuscateBashResultText(block.content, renameMap, stats, label)
+            : await obfuscateText(block.content, renameMap, stats, label);
         } else if (Array.isArray(block.content)) {
           for (const inner of block.content) {
             if (isRecord(inner) && inner.type === 'text' && typeof inner.text === 'string') {
               inner.text = isBash
-                ? obfuscateBashResultText(inner.text, renameMap, stats)
-                : await obfuscateText(inner.text, renameMap, stats);
+                ? obfuscateBashResultText(inner.text, renameMap, stats, label)
+                : await obfuscateText(inner.text, renameMap, stats, label);
             }
           }
         }
@@ -76,20 +87,47 @@ export async function transformRequestBody(
   return { body, stats };
 }
 
-/** Maps each tool_use block's id to its tool name, across the whole body,
- * so a later tool_result (which only carries tool_use_id) can be matched
- * back to the tool that produced it. */
-function buildToolNameById(messages: unknown[]): Map<string, string> {
-  const toolNameById = new Map<string, string>();
+interface ToolCall {
+  name: string;
+  input: Record<string, unknown>;
+}
+
+/** Maps each tool_use block's id to its name and input, across the whole
+ * body, so a later tool_result (which only carries tool_use_id) can be
+ * matched back to the tool that produced it — both to tell Bash apart from
+ * everything else, and to recover a human-readable label (e.g. a file
+ * path) for presentation. */
+function buildToolCallById(messages: unknown[]): Map<string, ToolCall> {
+  const toolCallById = new Map<string, ToolCall>();
   for (const message of messages) {
     if (!isRecord(message) || !Array.isArray(message.content)) continue;
     for (const block of message.content) {
-      if (isRecord(block) && block.type === 'tool_use' && typeof block.id === 'string' && typeof block.name === 'string') {
-        toolNameById.set(block.id, block.name);
+      if (
+        isRecord(block) &&
+        block.type === 'tool_use' &&
+        typeof block.id === 'string' &&
+        typeof block.name === 'string' &&
+        isRecord(block.input)
+      ) {
+        toolCallById.set(block.id, { name: block.name, input: block.input });
       }
     }
   }
-  return toolNameById;
+  return toolCallById;
+}
+
+/** Best-effort human-readable label for a tool call, purely for reporting
+ * (e.g. "🔒 3 identifiers protected in src/server.ts"). Falls back to the
+ * tool name alone when there's nothing more specific to show. */
+function deriveLabel(toolName: string, input: Record<string, unknown>): string {
+  if (typeof input.file_path === 'string' && input.file_path.length > 0) {
+    return input.file_path;
+  }
+  if (BASH_TOOL_NAMES.has(toolName) && typeof input.command === 'string' && input.command.length > 0) {
+    const command = input.command.length > 60 ? `${input.command.slice(0, 60)}…` : input.command;
+    return `Bash: ${command}`;
+  }
+  return toolName;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -101,28 +139,31 @@ async function obfuscateField(
   field: string,
   renameMap: RenameMap,
   stats: TransformStats,
+  label: string,
 ): Promise<void> {
   const value = obj[field];
   if (typeof value !== 'string' || value.length === 0) return;
-  obj[field] = await obfuscateText(value, renameMap, stats);
+  obj[field] = await obfuscateText(value, renameMap, stats, label);
 }
 
-async function obfuscateText(text: string, renameMap: RenameMap, stats: TransformStats): Promise<string> {
+async function obfuscateText(text: string, renameMap: RenameMap, stats: TransformStats, label: string): Promise<string> {
   stats.blocksScanned += 1;
   const result = await obfuscateCode(text, renameMap);
   if (result.renamed) {
     stats.blocksRenamed += 1;
     stats.totalIdentifiersRenamed += result.renamedCount;
+    stats.blocks.push({ label, renamedCount: result.renamedCount });
   }
   return result.output;
 }
 
-function obfuscateBashResultText(text: string, renameMap: RenameMap, stats: TransformStats): string {
+function obfuscateBashResultText(text: string, renameMap: RenameMap, stats: TransformStats, label: string): string {
   stats.blocksScanned += 1;
   const { output, renamedCount } = obfuscateKnownNames(text, renameMap);
   if (renamedCount > 0) {
     stats.blocksRenamed += 1;
     stats.totalIdentifiersRenamed += renamedCount;
+    stats.blocks.push({ label, renamedCount });
   }
   return output;
 }

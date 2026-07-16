@@ -3,15 +3,22 @@
   "version": "0.1.0",
   "description": "Local proxy for Claude Code / Cursor that obfuscates local identifiers before requests leave the machine and rehydrates them on the way back.",
   "type": "module",
-  "private": true,
   "main": "dist/index.js",
+  "bin": {
+    "warden-proxy": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "grammars"
+  ],
   "scripts": {
     "setup": "bash setup.sh",
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepack": "npm run build"
   },
   "engines": {
     "node": ">=20"

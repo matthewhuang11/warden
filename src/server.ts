@@ -7,6 +7,7 @@ import { transformRequestBody } from './obfuscate/transformRequestBody.js';
 import { sessionRenameMap } from './session.js';
 import { rehydrateSseStream } from './rehydrate/sseRehydrate.js';
 import { rehydrateJsonValue } from './rehydrate/rehydrateJson.js';
+import { printObfuscationSummary } from './consoleOutput.js';
 
 // Headers that must not be blindly forwarded between hops: either they
 // describe the transport of *this* connection (and would be wrong for the
@@ -96,6 +97,7 @@ async function prepareObfuscatedBody(raw: Buffer, path: string): Promise<string 
   try {
     const { body: transformed, stats } = await transformRequestBody(parsed, sessionRenameMap);
     logger.info('obfuscate.request_transformed', { path, ...stats });
+    printObfuscationSummary(stats);
     return JSON.stringify(transformed);
   } catch (err) {
     logger.error('obfuscate.transform_failed', { path, error: String(err) });

@@ -10,48 +10,43 @@ machine in the clear.
 
 ## Quickstart (~2 minutes)
 
-```
-npm run setup   # installs dependencies and builds
-npm start       # leave this running in its own terminal
-```
-
-Then point Claude Code at it. **`ANTHROPIC_BASE_URL` is read once when
-Claude Code starts, not per-request** — if Claude Code is already
-running, restart it after this for it to take effect.
-
-**Shell (CLI):**
+No install, no clone — this ships as a prebuilt CLI:
 
 ```
-export ANTHROPIC_BASE_URL=http://localhost:8787
-claude
+npx warden-proxy
 ```
 
-**Claude Code settings.json** (`~/.claude/settings.json` for all
-projects, or `.claude/settings.json` in one project) — use this instead
-if you'd rather not export it in every shell; it works the same whether
-you launch Claude Code from a terminal or from inside VS Code:
+Leave that running in its own terminal, then in a second terminal, let it
+write the config for you:
 
-```json
-{
-  "env": {
-    "ANTHROPIC_BASE_URL": "http://localhost:8787"
-  }
-}
+```
+npx warden-proxy setup
 ```
 
-Either way, restart Claude Code (or reload the VS Code window) afterward.
+This offers to add `ANTHROPIC_BASE_URL` to your Claude Code settings
+(`~/.claude/settings.json`) and shows you exactly what it's about to write
+before asking to confirm — it won't touch the file without a yes. If you'd
+rather do it yourself (or `setup` declines because the file doesn't parse),
+it prints the same snippet for you to add by hand, plus a shell-export
+alternative.
 
-**Confirm it's working:** the terminal running `npm start` should print a
-`request.forwarded` log line for each request once Claude Code starts
-talking to it.
+**`ANTHROPIC_BASE_URL` is read once when Claude Code starts, not
+per-request** — restart Claude Code (fully quit and reopen, or reload the
+VS Code window) after running `setup`, or after exporting it manually, for
+it to take effect.
+
+**Confirm it's working:** the terminal running `warden-proxy` should print
+a line like `🔒 3 identifiers protected in src/foo.ts` whenever Claude Code
+sends it something to obfuscate.
 
 To go back to talking to Anthropic directly, `unset ANTHROPIC_BASE_URL`
-(and remove the `env` block from settings.json if you added it there).
+(and remove the `env` block from settings.json if `setup` added it there).
 
-> `npm run setup` just runs `setup.sh`, which does `npm install` +
-> `npm run build` and prints the steps above. If you'd rather run each
-> step yourself: `npm install && npm run build && npm start`, or
-> `npm run dev` for auto-restart on change during development.
+> Working from a clone of this repo instead? `npm run setup` (runs
+> `setup.sh`: `npm install` + `npm run build`, then prints the same
+> instructions) followed by `npm start`. Or run each step yourself:
+> `npm install && npm run build && npm start`, or `npm run dev` for
+> auto-restart on change during development.
 
 ## Configuration (environment variables)
 
@@ -61,6 +56,7 @@ To go back to talking to Anthropic directly, `unset ANTHROPIC_BASE_URL`
 | `WARDEN_UPSTREAM_BASE_URL` | `https://api.anthropic.com` | Where requests are forwarded |
 | `WARDEN_OBFUSCATION_DISABLED` | unset | Set to `1` to run as a pure passthrough (no obfuscation) |
 | `WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS` | `30000` | How long to wait for the upstream to start responding before failing the request with a `504` |
+| `WARDEN_VERBOSE` | unset | Set to `1` for detailed JSON logs (see **Watching it work**) |
 
 Your real auth keeps flowing through untouched — the proxy forwards
 whatever `Authorization`/`x-api-key` header it receives without
@@ -147,9 +143,16 @@ produced it:
 
 ## Watching it work
 
-Structured JSON logs go to stdout, one line per event:
+By default, Warden prints a short human-readable line per request that
+actually renamed something (e.g. `🔒 3 identifiers protected in
+src/foo.ts`), plus a one-line startup banner — nothing else. That's
+intentional: it's meant to feel like a normal CLI tool, not a firehose of
+logs.
 
-- `obfuscate.request_transformed` — a request was scanned; `blocksScanned`/`blocksRenamed`/`totalIdentifiersRenamed`
+For debugging, set `WARDEN_VERBOSE=1` to also get structured JSON logs to
+stdout, one line per event:
+
+- `obfuscate.request_transformed` — a request was scanned; `blocksScanned`/`blocksRenamed`/`totalIdentifiersRenamed`/`blocks` (per-block label + rename count)
 - `obfuscate.applied` — one code block was successfully renamed, with the grammar dialect used
 - `obfuscate.parse_failed` — a code block didn't parse in either grammar and was left untouched
 - `obfuscate.skipped_too_large` — a code block exceeded the line-count ceiling and was left untouched without attempting to parse it
@@ -161,6 +164,7 @@ On startup, Warden also checks that its port is free and that the
 upstream is reachable — a port already in use prints a clear error and
 exits; an unreachable upstream prints a warning but still starts (so a
 transient network blip doesn't block you from getting the proxy running).
+These two checks always print in plain text, regardless of `WARDEN_VERBOSE`.
 
 ## Development
 
