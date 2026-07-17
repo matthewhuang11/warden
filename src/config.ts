@@ -3,6 +3,8 @@ export interface WardenConfig {
   upstreamBaseUrl: string;
   obfuscationEnabled: boolean;
   upstreamHeadersTimeoutMs: number;
+  redactComments: boolean;
+  redactStrings: boolean;
 }
 
 function readConfig(env: NodeJS.ProcessEnv): WardenConfig {
@@ -21,6 +23,8 @@ function readConfig(env: NodeJS.ProcessEnv): WardenConfig {
     upstreamBaseUrl: env.WARDEN_UPSTREAM_BASE_URL ?? 'https://api.anthropic.com',
     obfuscationEnabled: env.WARDEN_OBFUSCATION_DISABLED !== '1',
     upstreamHeadersTimeoutMs,
+    redactComments: env.WARDEN_REDACT_COMMENTS !== '0',
+    redactStrings: env.WARDEN_REDACT_STRINGS !== '0',
   };
 }
 

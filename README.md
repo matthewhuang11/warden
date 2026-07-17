@@ -57,6 +57,8 @@ To go back to talking to Anthropic directly, `unset ANTHROPIC_BASE_URL`
 | `WARDEN_OBFUSCATION_DISABLED` | unset | Set to `1` to run as a pure passthrough (no obfuscation) |
 | `WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS` | `30000` | How long to wait for the upstream to start responding before failing the request with a `504` |
 | `WARDEN_VERBOSE` | unset | Set to `1` for detailed JSON logs (see **Watching it work**) |
+| `WARDEN_REDACT_COMMENTS` | enabled | Set to `0` to stop redacting comments (see **What gets obfuscated**) |
+| `WARDEN_REDACT_STRINGS` | enabled | Set to `0` to stop redacting long, business-sounding string literals (see **What gets obfuscated**) |
 
 Your real auth keeps flowing through untouched — the proxy forwards
 whatever `Authorization`/`x-api-key` header it receives without
@@ -104,6 +106,32 @@ produced it:
   `Edit`/`Write` (e.g. renaming `data` won't touch `database` or
   `dataset`). See **Known limitations** below.
 
+Beyond identifier renaming, two more things get scrubbed from any block
+that parses as JS/TS (both on by default; see the env vars above to turn
+either off):
+
+- **Comments** (`//` and `/* */`) are always fully replaced with a fixed
+  placeholder (`// [redacted]`) — they're pure documentation for humans,
+  so unlike identifiers/strings there's no selective logic here. A
+  multi-line block comment's placeholder preserves the original line
+  count (padding with blank lines) so it round-trips through the
+  line-number-prefix handling above; the comment's own text is discarded,
+  not restored.
+- **String literals** are handled far more conservatively, since blanket
+  redaction would break code the model needs to reason about correctly.
+  A string is only redacted if it's **15+ characters**, contains
+  **multiple words** (separated by spaces or underscores — a proxy for
+  "reads like business prose" rather than a technical token), and is
+  **not** used as an import/export path, an object key, a JSX attribute
+  value, or a comparison/switch-case value (contexts where the exact
+  value is load-bearing for control flow, not just human-readable
+  content). Redacted strings become a unique placeholder (`"str_1"`,
+  `"str_2"`, ...) and — unlike identifiers — don't need a *consistent*
+  mapping, but they do still round-trip byte-for-byte back to the exact
+  original if the model ever echoes the placeholder back, using the same
+  rename map and reversal mechanism as identifiers. Template literals
+  (`` `...` ``) are left alone entirely — see **Known limitations**.
+
 ## Known limitations
 
 ### Not protected (real names can reach the upstream API unobfuscated)
@@ -131,6 +159,23 @@ produced it:
   this depth, `JSON.stringify` doesn't). That one request degrades to
   going out unobfuscated instead of failing (logged as
   `obfuscate.transform_failed`).
+- **A long, `snake_case`-y string in a plain (non-comparison, non-key)
+  position can be redacted even when it's actually a technical value, not
+  business prose** — e.g. `const path = "/api/v2/high_risk_zone_lookup";`
+  gets redacted, because nothing about that position is structurally
+  different from a real business-description string, and its underscores
+  make it read as "multi-word" to the heuristic. The reverse is also true
+  in principle: a hyphenated or camelCase business string
+  (`"high-risk-zone-multiplier"`) won't trip the multi-word check at all
+  and goes out untouched. This heuristic is deliberately simple (length +
+  word-separator check only) per spec — it isn't, and doesn't try to be, a
+  true "does this look like business prose" classifier.
+- **Template literals (`` `...` ``) are never touched**, even ones that
+  are 100% static, long, multi-word business text. They commonly mix
+  static text with interpolated expressions (`` `Order ${id} exceeds the
+  ${threshold} limit` ``), and safely redacting only the static portions
+  felt like a meaningfully bigger, riskier feature than what was asked for
+  here — left out deliberately rather than shipped half-considered.
 
 ### Operational behavior (not a privacy gap, just worth knowing)
 
@@ -153,7 +198,7 @@ For debugging, set `WARDEN_VERBOSE=1` to also get structured JSON logs to
 stdout, one line per event:
 
 - `obfuscate.request_transformed` — a request was scanned; `blocksScanned`/`blocksRenamed`/`totalIdentifiersRenamed`/`blocks` (per-block label + rename count)
-- `obfuscate.applied` — one code block was successfully renamed, with the grammar dialect used
+- `obfuscate.applied` — one code block was successfully renamed, with the grammar dialect used, plus `commentsRedacted`/`stringsRedacted` counts
 - `obfuscate.parse_failed` — a code block didn't parse in either grammar and was left untouched
 - `obfuscate.skipped_too_large` — a code block exceeded the line-count ceiling and was left untouched without attempting to parse it
 - `obfuscate.transform_failed` — obfuscating/re-serializing the request body threw unexpectedly; the original request was forwarded untouched instead

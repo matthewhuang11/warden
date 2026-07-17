@@ -2,15 +2,22 @@ import type Parser from 'web-tree-sitter';
 import { getParser, type Dialect } from './grammar.js';
 import { analyzeScopes } from './scopeAnalyzer.js';
 import { applyRenames } from './applyRenames.js';
+import { redactSensitiveText } from './redactSensitiveText.js';
 import type { RenameMap } from './renameMap.js';
 import { stripLineNumberPrefixes, restoreLineNumberPrefixes } from './lineNumberFormat.js';
 import { logger } from '../log.js';
+import { config } from '../config.js';
 
 export interface ObfuscateResult {
   output: string;
+  /** True if anything was changed at all — identifier renames, redacted
+   * comments, or redacted strings. Check the specific counts below to see
+   * which. */
   renamed: boolean;
   renamedCount: number;
   dialect: Dialect | null;
+  commentsRedacted: number;
+  stringsRedacted: number;
 }
 
 const DIALECT_ATTEMPT_ORDER: Dialect[] = ['typescript', 'tsx'];
@@ -81,7 +88,7 @@ export async function obfuscateCode(source: string, renameMap: RenameMap): Promi
       lineCount,
       maxLines: MAX_OBFUSCATABLE_LINES,
     });
-    return { output: source, renamed: false, renamedCount: 0, dialect: null };
+    return { output: source, renamed: false, renamedCount: 0, dialect: null, commentsRedacted: 0, stringsRedacted: 0 };
   }
 
   const lineNumbered = stripLineNumberPrefixes(source);
@@ -95,23 +102,58 @@ export async function obfuscateCode(source: string, renameMap: RenameMap): Promi
       continue;
     }
 
-    const analysis = analyzeScopes(tree.rootNode, renameMap);
-    const { output, renamedCount } = applyRenames(workingSource, analysis, renameMap);
+    // Comment/string redaction runs as its own independent pass, on its own
+    // parse of the original text — it never touches scopeAnalyzer/applyRenames
+    // or the offsets they compute. Its (re-parseable) output is simply handed
+    // to the existing identifier-renaming pipeline below as if it were the
+    // original source.
+    const redaction = redactSensitiveText(workingSource, tree.rootNode, renameMap, {
+      redactComments: config.redactComments,
+      redactStrings: config.redactStrings,
+    });
+
+    let renameTree = tree;
+    let renameSource = workingSource;
+    if (redaction.output !== workingSource) {
+      const reparsed = parser.parse(redaction.output);
+      if (reparsed.rootNode.hasError) {
+        // Should not happen (redaction only swaps comment/string contents
+        // for same-shape placeholders), but if it ever did, silently
+        // falling back to the pre-redaction tree/text is safer than either
+        // crashing or renaming against offsets that no longer line up.
+        logger.warn('obfuscate.redaction_reparse_failed', { dialect, sourceLength: source.length });
+      } else {
+        renameTree = reparsed;
+        renameSource = redaction.output;
+      }
+    }
+
+    const analysis = analyzeScopes(renameTree.rootNode, renameMap);
+    const { output, renamedCount } = applyRenames(renameSource, analysis, renameMap);
     const restored = lineNumbered ? restoreLineNumberPrefixes(output, lineNumbered.prefixes) : output;
     if (restored === null) {
       logger.warn('obfuscate.line_number_restore_failed', { sourceLength: source.length });
-      return { output: source, renamed: false, renamedCount: 0, dialect: null };
+      return { output: source, renamed: false, renamedCount: 0, dialect: null, commentsRedacted: 0, stringsRedacted: 0 };
     }
 
     logger.info('obfuscate.applied', {
       dialect,
       declarations: analysis.declarations.length,
       renamedCount,
+      commentsRedacted: redaction.commentsRedacted,
+      stringsRedacted: redaction.stringsRedacted,
       lineNumbered: lineNumbered !== null,
     });
-    return { output: restored, renamed: renamedCount > 0, renamedCount, dialect };
+    return {
+      output: restored,
+      renamed: renamedCount > 0 || redaction.commentsRedacted > 0 || redaction.stringsRedacted > 0,
+      renamedCount,
+      dialect,
+      commentsRedacted: redaction.commentsRedacted,
+      stringsRedacted: redaction.stringsRedacted,
+    };
   }
 
   logger.warn('obfuscate.parse_failed', { sourceLength: source.length, lineNumbered: lineNumbered !== null });
-  return { output: source, renamed: false, renamedCount: 0, dialect: null };
+  return { output: source, renamed: false, renamedCount: 0, dialect: null, commentsRedacted: 0, stringsRedacted: 0 };
 }

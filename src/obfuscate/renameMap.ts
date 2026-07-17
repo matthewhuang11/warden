@@ -1,9 +1,16 @@
 import type { DeclKind } from './scopeAnalyzer.js';
 
-const KIND_PREFIX: Record<DeclKind, string> = {
+// Widens the identifier-renaming vocabulary (DeclKind) with a 'string' kind
+// for redacted string-literal content (see redactSensitiveText.ts). A
+// DeclKind value is always assignable where RenameKind is expected, so this
+// is purely additive — existing calls passing a DeclKind are untouched.
+export type RenameKind = DeclKind | 'string';
+
+const KIND_PREFIX: Record<RenameKind, string> = {
   function: 'func',
   variable: 'var',
   class: 'class',
+  string: 'str',
 };
 
 /**
@@ -18,14 +25,14 @@ const KIND_PREFIX: Record<DeclKind, string> = {
 export class RenameMap {
   private readonly toSynthetic = new Map<string, string>();
   private readonly toOriginal = new Map<string, string>();
-  private readonly countersByKind = new Map<DeclKind, number>();
+  private readonly countersByKind = new Map<RenameKind, number>();
 
   /** Looks up an existing mapping without creating one. */
   get(originalName: string): string | undefined {
     return this.toSynthetic.get(originalName);
   }
 
-  getOrCreate(originalName: string, kind: DeclKind): string {
+  getOrCreate(originalName: string, kind: RenameKind): string {
     const existing = this.toSynthetic.get(originalName);
     if (existing) return existing;
 
