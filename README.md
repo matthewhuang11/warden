@@ -110,9 +110,17 @@ Beyond identifier renaming, two more things get scrubbed from any block
 that parses as JS/TS (both on by default; see the env vars above to turn
 either off):
 
-- **Comments** (`//` and `/* */`) are always fully replaced with a fixed
-  placeholder (`// [redacted]`) — they're pure documentation for humans,
-  so unlike identifiers/strings there's no selective logic here. A
+- **Comments** (`//` and `/* */`) are always fully replaced — they're pure
+  documentation for humans, so unlike identifiers/strings there's no
+  selective logic here. Rather than one fixed literal every time (an
+  obvious tell that something was removed), the placeholder is picked from
+  a small pool of generic, plausible-sounding phrases (e.g. `// see
+  implementation below`, `// internal logic, not user-facing`), varied by
+  the original comment's length/content/position so it isn't a fixed
+  fingerprint — but never derived from the comment's actual words, so
+  nothing about the real content leaks through even indirectly. The
+  chosen phrase's length roughly scales with the original's, so a short
+  comment doesn't visually balloon into a long one or vice versa. A
   multi-line block comment's placeholder preserves the original line
   count (padding with blank lines) so it round-trips through the
   line-number-prefix handling above; the comment's own text is discarded,

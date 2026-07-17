@@ -22,10 +22,14 @@ describe('comment redaction', () => {
     ].join('\n');
     const map = new RenameMap();
     const result = await obfuscateCode(source, map);
+    const lines = result.output.split('\n');
 
-    expect(result.output).toBe(
-      ['// [redacted]', 'function func_1(order) {', '  return order.total * 1.3;', '}'].join('\n'),
-    );
+    expect(lines[0]).toMatch(/^\/\/ .+$/);
+    expect(lines[0]).not.toBe('// Applies our proprietary risk pricing model before checkout');
+    for (const word of ['proprietary', 'risk', 'pricing', 'checkout']) {
+      expect(lines[0].toLowerCase()).not.toContain(word);
+    }
+    expect(lines.slice(1).join('\n')).toBe('function func_1(order) {\n  return order.total * 1.3;\n}');
     expect(result.commentsRedacted).toBe(1);
   });
 
@@ -42,7 +46,10 @@ describe('comment redaction', () => {
 
     const outputLines = result.output.split('\n');
     expect(outputLines).toHaveLength(source.split('\n').length);
-    expect(outputLines[0]).toBe('/* [redacted]');
+    expect(outputLines[0]).toMatch(/^\/\* .+$/);
+    for (const word of ['risk', 'zone', 'surcharge', 'pricing']) {
+      expect(result.output.toLowerCase()).not.toContain(word);
+    }
     expect(outputLines[outputLines.length - 1]).toBe('function func_1() {}');
     expect(result.output).toContain('*/');
     expect(result.commentsRedacted).toBe(1);
@@ -56,6 +63,58 @@ describe('comment redaction', () => {
 
     expect(result.output).toContain('// Applies our proprietary risk pricing model');
     expect(result.commentsRedacted).toBe(0);
+  });
+
+  it('does not produce the same placeholder for every comment (no single fixed fingerprint)', async () => {
+    const source = [
+      '// first comment about something',
+      'function a() {}',
+      '// second comment about something else',
+      'function b() {}',
+      '// third comment about yet another thing',
+      'function c() {}',
+      '// fourth comment about one more topic',
+      'function d() {}',
+    ].join('\n');
+    const map = new RenameMap();
+    const result = await obfuscateCode(source, map);
+
+    const commentLines = result.output.split('\n').filter((line) => line.trim().startsWith('//'));
+    expect(commentLines).toHaveLength(4);
+    // Not asserting *all* are distinct (a small rotating pool can coincide),
+    // just that they aren't all the identical fixed string every time.
+    expect(new Set(commentLines).size).toBeGreaterThan(1);
+  });
+
+  it('roughly preserves comment shape: a short comment gets a shorter placeholder than a long one', async () => {
+    const shortSource = '// ok\nfunction a() {}';
+    const longSource =
+      '// This is a much longer comment that explains a fair amount of business context and reasoning\nfunction b() {}';
+    const map = new RenameMap();
+
+    const shortResult = await obfuscateCode(shortSource, map);
+    const longResult = await obfuscateCode(longSource, new RenameMap());
+
+    const shortLine = shortResult.output.split('\n')[0];
+    const longLine = longResult.output.split('\n')[0];
+    expect(longLine.length).toBeGreaterThan(shortLine.length);
+  });
+
+  it('never leaks the real comment text into the placeholder, across a range of lengths', async () => {
+    const distinctiveWords = ['xylophone', 'quetzalcoatl', 'zephyranth'];
+    const source = [
+      `// ${distinctiveWords[0]}`,
+      `// a comment mentioning ${distinctiveWords[1]} in the middle`,
+      `// a much longer comment that eventually gets around to mentioning ${distinctiveWords[2]} near the very end of it`,
+      'function f() {}',
+    ].join('\n');
+    const map = new RenameMap();
+    const result = await obfuscateCode(source, map);
+
+    for (const word of distinctiveWords) {
+      expect(result.output).not.toContain(word);
+    }
+    expect(result.commentsRedacted).toBe(3);
   });
 });
 
@@ -180,10 +239,12 @@ describe('combined with identifier renaming', () => {
     ].join('\n');
     const map = new RenameMap();
     const result = await obfuscateCode(source, map);
+    const lines = result.output.split('\n');
 
-    expect(result.output).toBe(
+    expect(lines[0]).toMatch(/^\/\/ .+$/);
+    expect(lines[0]).not.toContain('proprietary');
+    expect(lines.slice(1).join('\n')).toBe(
       [
-        '// [redacted]',
         'function func_1(order) {',
         '  const var_1 = order.status;',
         '  if (var_1 === "pending_review_needed") {',
