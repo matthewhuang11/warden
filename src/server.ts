@@ -59,10 +59,22 @@ function buildResponseHeaders(upstream: Response): Record<string, string> {
   return headers;
 }
 
+function safeLogPath(path: string): string {
+  try {
+    return new URL(path, 'http://warden.invalid').pathname || '/';
+  } catch {
+    return '[invalid-request-target]';
+  }
+}
+
+function errorType(err: unknown): string {
+  return err instanceof Error ? err.name : typeof err;
+}
+
 export function createProxyServer(): Server {
   return createServer((req, res) => {
     void handleRequest(req, res).catch((err) => {
-      logger.error('request.unhandled_error', { error: String(err) });
+      logger.error('request.unhandled_error', { errorType: errorType(err) });
       if (!res.headersSent) {
         res.writeHead(502, { 'content-type': 'application/json' });
       }
@@ -147,7 +159,7 @@ async function prepareObfuscatedBody(raw: Buffer, path: string): Promise<string 
   try {
     parsed = JSON.parse(raw.toString('utf8'));
   } catch (err) {
-    logger.warn('obfuscate.body_not_json', { path, error: String(err) });
+    logger.warn('obfuscate.body_not_json', { path, errorType: errorType(err) });
     return raw;
   }
 
@@ -163,7 +175,7 @@ async function prepareObfuscatedBody(raw: Buffer, path: string): Promise<string 
     printObfuscationSummary(stats);
     return JSON.stringify(transformed);
   } catch (err) {
-    logger.error('obfuscate.transform_failed', { path, error: String(err) });
+    logger.error('obfuscate.transform_failed', { path, errorType: errorType(err) });
     return raw;
   }
 }
@@ -172,6 +184,7 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
   const start = Date.now();
   const method = req.method ?? 'GET';
   const path = req.url ?? '/';
+  const logPath = safeLogPath(path);
 
   // Warden is a forward proxy for one configured origin, not an open proxy.
   // Reject absolute-form and protocol-relative request targets before URL
@@ -191,7 +204,7 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
     return;
   }
 
-  logger.info('request.received', { method, path });
+  logger.info('request.received', { method, path: logPath });
 
   const hasBody = method !== 'GET' && method !== 'HEAD';
   const shouldObfuscate = config.obfuscationEnabled && hasBody && method === 'POST' && target.pathname === '/v1/messages';
@@ -203,14 +216,14 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
       raw = await readRequestBody(req);
     } catch (err) {
       if (err instanceof RequestBodyTooLargeError) {
-        logger.warn('request.body_too_large', { method, path, maxBytes: config.maxRequestBodyBytes });
+        logger.warn('request.body_too_large', { method, path: logPath, maxBytes: config.maxRequestBodyBytes });
         res.writeHead(413, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'request_body_too_large' }));
         return;
       }
       throw err;
     }
-    body = shouldObfuscate ? await prepareObfuscatedBody(raw, path) : raw;
+    body = shouldObfuscate ? await prepareObfuscatedBody(raw, logPath) : raw;
   }
   const isStreamingBody = typeof ReadableStream !== 'undefined' && body instanceof ReadableStream;
 
@@ -238,11 +251,16 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
     const timedOut = headersController.signal.aborted;
     logger.error(timedOut ? 'request.upstream_timeout' : 'request.upstream_unreachable', {
       method,
-      path,
-      error: String(err),
+      path: logPath,
+      errorType: errorType(err),
     });
     res.writeHead(timedOut ? 504 : 502, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ error: timedOut ? 'upstream_timeout' : 'upstream_unreachable', message: String(err) }));
+    res.end(
+      JSON.stringify({
+        error: timedOut ? 'upstream_timeout' : 'upstream_unreachable',
+        message: timedOut ? 'The upstream did not respond in time' : 'The upstream could not be reached',
+      }),
+    );
     return;
   } finally {
     clearTimeout(headersTimeout);
@@ -251,7 +269,7 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
   const logForwarded = () =>
     logger.info('request.forwarded', {
       method,
-      path,
+      path: logPath,
       status: upstreamResponse.status,
       durationMs: Date.now() - start,
     });
@@ -270,7 +288,7 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
     const upstreamNodeStream = Readable.fromWeb(upstreamResponse.body as import('node:stream/web').ReadableStream);
     const rehydratedStream = Readable.from(rehydrateSseStream(upstreamNodeStream, sessionRenameMap));
     rehydratedStream.on('error', (err) => {
-      logger.error('response.stream_error', { method, path, error: String(err) });
+      logger.error('response.stream_error', { method, path: logPath, errorType: errorType(err) });
       res.destroy(err);
     });
     rehydratedStream.on('end', logForwarded);
@@ -286,7 +304,7 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
       if (err instanceof ResponseBodyTooLargeError) {
         logger.warn('rehydrate.response_too_large', {
           method,
-          path,
+          path: logPath,
           maxBytes: config.maxBufferedResponseBytes,
         });
         res.writeHead(502, { 'content-type': 'application/json' });
@@ -300,7 +318,7 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
       const parsed = JSON.parse(rawText);
       output = JSON.stringify(rehydrateJsonValue(parsed, sessionRenameMap));
     } catch (err) {
-      logger.warn('rehydrate.response_not_json', { method, path, error: String(err) });
+      logger.warn('rehydrate.response_not_json', { method, path: logPath, errorType: errorType(err) });
     }
     res.writeHead(upstreamResponse.status, buildResponseHeaders(upstreamResponse));
     res.end(output);
@@ -311,7 +329,7 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
   res.writeHead(upstreamResponse.status, buildResponseHeaders(upstreamResponse));
   const nodeStream = Readable.fromWeb(upstreamResponse.body as import('node:stream/web').ReadableStream);
   nodeStream.on('error', (err) => {
-    logger.error('response.stream_error', { method, path, error: String(err) });
+    logger.error('response.stream_error', { method, path: logPath, errorType: errorType(err) });
     res.destroy(err);
   });
   nodeStream.on('end', logForwarded);

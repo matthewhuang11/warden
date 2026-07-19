@@ -246,6 +246,25 @@ describe('upstream timeout and mid-stream failure', () => {
     expect(elapsedMs).toBeLessThan(2000);
   }, 10_000);
 
+  it('does not expose raw upstream errors or request query strings to the client', async () => {
+    const proxy = createProxyServer();
+    openServers.push(proxy);
+    const proxyUrl = await listen(proxy);
+    config.upstreamBaseUrl = 'http://127.0.0.1:1';
+
+    const res = await fetch(`${proxyUrl}/v1/messages?api_key=should-not-leak`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ messages: [] }),
+    });
+
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({
+      error: 'upstream_unreachable',
+      message: 'The upstream could not be reached',
+    });
+  });
+
   it('ends the client response cleanly (not hung) when the upstream drops the connection mid-stream', async () => {
     const { proxyUrl } = await startProxyWithUpstream((_req, res) => {
       res.writeHead(200, { 'content-type': 'text/event-stream' });
