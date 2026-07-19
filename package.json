@@ -6,7 +6,8 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "warden-proxy": "dist/cli.js"
+    "warden-proxy": "dist/cli.js",
+    "warden": "dist/cli.js"
   },
   "files": [
     "dist",
