@@ -36,8 +36,19 @@ VS Code window) after running `setup`, or after exporting it manually, for
 it to take effect.
 
 **Confirm it's working:** the terminal running `warden-proxy` should print
-a line like `🔒 3 identifiers protected in src/foo.ts` whenever Claude Code
-sends it something to obfuscate.
+an updating line like `Warden stats | identifiers: 3 | comments: 1 | strings: 1 | secrets: 0`
+whenever Claude Code sends it something to obfuscate.
+
+Local reports are available without any network call:
+
+```bash
+warden stats
+warden report
+```
+
+The report reads the encrypted local audit log and opens a static HTML file.
+The encryption key is held in macOS Keychain; the local log contains hashes,
+categories, and timestamps, never source text.
 
 To go back to talking to Anthropic directly, `unset ANTHROPIC_BASE_URL`
 (and remove the `env` block from settings.json if `setup` added it there).
@@ -67,6 +78,8 @@ To go back to talking to Anthropic directly, `unset ANTHROPIC_BASE_URL`
 | `WARDEN_VERBOSE` | unset | Set to `1` for detailed JSON logs (see **Watching it work**) |
 | `WARDEN_REDACT_COMMENTS` | enabled | Set to `0` to stop redacting comments (see **What gets obfuscated**) |
 | `WARDEN_REDACT_STRINGS` | enabled | Set to `0` to stop redacting long, business-sounding string literals (see **What gets obfuscated**) |
+| `WARDEN_CONNECT_CONFIG` | `~/.warden/connect.json` | Local opt-in team-sync configuration path |
+| `WARDEN_DASHBOARD_URL` | unset | Dashboard sync endpoint used by `warden connect` when `--url` is omitted |
 
 Your real auth keeps flowing through untouched — the proxy forwards
 whatever `Authorization`/`x-api-key` header it receives without
@@ -236,6 +249,21 @@ upstream is reachable — a port already in use prints a clear error and
 exits; an unreachable upstream prints a warning but still starts (so a
 transient network blip doesn't block you from getting the proxy running).
 These two checks always print in plain text, regardless of `WARDEN_VERBOSE`.
+
+## Optional team sync
+
+Team sync is **off by default**. A fresh install makes no dashboard network
+request and only talks to the configured AI provider. Enable it explicitly:
+
+```bash
+warden connect <org-token> --url https://dashboard.example.com/api/sync
+```
+
+After connecting, Warden sends only aggregate category counts, pseudonymous
+repository/session labels, timestamps, and one-way SHA-256 hashes. It never
+sends source code, comments, real identifier names, file contents, or the
+in-memory `RenameMap`. The dashboard rejects unknown fields and values that do
+not match this aggregate-only contract.
 
 ## Development
 
