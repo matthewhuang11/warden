@@ -128,6 +128,20 @@ describe('string literal redaction', () => {
     expect(result.stringsRedacted).toBe(0);
   });
 
+  it('does not redact long machine tokens that participate in typed protocols', async () => {
+    const source = [
+      "type ReviewState = 'ready' | 'pending_manual_review' | 'follow-up-required';",
+      "const state: ReviewState = 'pending_manual_review';",
+    ].join('\n');
+    const map = new RenameMap();
+    const result = await obfuscateCode(source, map);
+
+    expect(result.output).toContain("'pending_manual_review'");
+    expect(result.output).toContain("'follow-up-required'");
+    expect(result.stringsRedacted).toBe(0);
+    expect(rehydrateText(result.output, map)).toBe(source);
+  });
+
   it('does not redact a string used in a conditional/comparison, to avoid breaking logic the model needs to see', async () => {
     const source = [
       'function check(status) {',

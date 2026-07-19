@@ -180,9 +180,14 @@ function unescapedStringContent(stringNode: Parser.SyntaxNode): string | null {
 function shouldRedactString(stringNode: Parser.SyntaxNode): boolean {
   const content = stringNode.text.slice(1, -1);
   if (content.length < MIN_STRING_LENGTH) return false;
+  if (isMachineToken(content)) return false;
   if (!isMultiWord(content)) return false;
   if (isStructuralContext(stringNode)) return false;
   return true;
+}
+
+function isMachineToken(content: string): boolean {
+  return /^[A-Za-z0-9]+(?:[_-][A-Za-z0-9]+)+$/.test(content);
 }
 
 function isMultiWord(content: string): boolean {
