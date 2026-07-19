@@ -2,6 +2,7 @@
 import { runSetupWizard } from './setupWizard.js';
 import { EncryptedAuditLog } from './audit/auditLog.js';
 import { formatStats, renderReport, summarizeEvents, writeReport } from './report/report.js';
+import { writeSyncConfig } from './sync/syncConfig.js';
 
 const HELP = `
 warden-proxy — local proxy that obfuscates local identifiers before they
@@ -13,6 +14,7 @@ Usage:
                              ~/.claude/settings.json, with confirmation)
   warden-proxy report       Generate and open a local HTML protection report
   warden-proxy stats        Print local protection totals
+  warden-proxy connect     Enable opt-in team sync with an organization token
   warden-proxy --help       Show this help
 
 Options for "setup":
@@ -52,6 +54,20 @@ async function main(): Promise<void> {
   if (command === 'stats') {
     const auditLog = new EncryptedAuditLog({ filePath: `${process.cwd()}/.warden/audit.log.enc` });
     console.log(formatStats(summarizeEvents(await auditLog.read())));
+    return;
+  }
+
+  if (command === 'connect') {
+    const token = rest.find((value) => !value.startsWith('--'));
+    const urlIndex = rest.findIndex((value) => value === '--url');
+    const endpoint = urlIndex >= 0 && rest[urlIndex + 1] ? rest[urlIndex + 1] : process.env.WARDEN_DASHBOARD_URL;
+    if (!token || !endpoint) {
+      console.error('Usage: warden connect <org-token> --url https://dashboard.example.com/api/sync');
+      process.exitCode = 1;
+      return;
+    }
+    await writeSyncConfig({ endpoint, token });
+    console.log('Warden team sync enabled. Only aggregate counts, labels, timestamps, and hashes will be sent.');
     return;
   }
 
