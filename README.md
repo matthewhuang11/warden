@@ -58,6 +58,7 @@ To go back to talking to Anthropic directly, `unset ANTHROPIC_BASE_URL`
 | `WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS` | `30000` | How long to wait for the upstream to start responding before failing the request with a `504` |
 | `WARDEN_MAX_REQUEST_BODY_BYTES` | `10485760` | Maximum request body size accepted by the proxy; larger requests receive a `413` before forwarding |
 | `WARDEN_MAX_BUFFERED_RESPONSE_BYTES` | `10485760` | Maximum JSON response size buffered for rehydration; larger responses receive a `502` |
+| `WARDEN_MAX_SSE_RESPONSE_BYTES` | `52428800` | Maximum total rehydrated SSE response size; larger streams are terminated |
 | `WARDEN_MAX_SESSION_MAPPINGS` | `10000` | Maximum in-memory identifier/token mappings retained by one running proxy |
 | `WARDEN_VERBOSE` | unset | Set to `1` for detailed JSON logs (see **Watching it work**) |
 | `WARDEN_REDACT_COMMENTS` | enabled | Set to `0` to stop redacting comments (see **What gets obfuscated**) |

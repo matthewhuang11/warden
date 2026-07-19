@@ -21,6 +21,7 @@ const originalUpstreamBaseUrl = config.upstreamBaseUrl;
 const originalUpstreamHeadersTimeoutMs = config.upstreamHeadersTimeoutMs;
 const originalMaxRequestBodyBytes = config.maxRequestBodyBytes;
 const originalMaxBufferedResponseBytes = config.maxBufferedResponseBytes;
+const originalMaxSseResponseBytes = config.maxSseResponseBytes;
 
 const openServers: Server[] = [];
 
@@ -29,6 +30,7 @@ afterEach(async () => {
   config.upstreamHeadersTimeoutMs = originalUpstreamHeadersTimeoutMs;
   config.maxRequestBodyBytes = originalMaxRequestBodyBytes;
   config.maxBufferedResponseBytes = originalMaxBufferedResponseBytes;
+  config.maxSseResponseBytes = originalMaxSseResponseBytes;
   await Promise.all(openServers.splice(0).map(close));
 });
 
@@ -222,6 +224,27 @@ describe('buffered response limits', () => {
 
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ error: 'upstream_response_too_large' });
+  });
+});
+
+describe('streamed response limits', () => {
+  it('terminates an SSE response after the configured total byte limit', async () => {
+    config.maxSseResponseBytes = 64;
+    const { proxyUrl } = await startProxyWithUpstream((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.end(`data: ${JSON.stringify({ type: 'content_block_delta', delta: { text: 'x'.repeat(100) } })}\n\n`);
+    });
+
+    await expect(
+      (async () => {
+        const res = await fetch(`${proxyUrl}/v1/messages`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ messages: [] }),
+        });
+        await res.text();
+      })(),
+    ).rejects.toThrow();
   });
 });
 

@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage } from 'node:http';
 import type { Server } from 'node:http';
-import { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { config } from './config.js';
 import { logger } from './log.js';
 import { transformRequestBody } from './obfuscate/transformRequestBody.js';
@@ -119,6 +119,31 @@ class ResponseBodyTooLargeError extends Error {
     super('Upstream response exceeds the configured buffering limit');
     this.name = 'ResponseBodyTooLargeError';
   }
+}
+
+class SseResponseTooLargeError extends Error {
+  constructor() {
+    super('SSE response exceeds the configured maximum size');
+    this.name = 'SseResponseTooLargeError';
+  }
+}
+
+function limitSseStream(source: Readable): Readable {
+  let totalBytes = 0;
+  const limited = new Transform({
+    transform(chunk: Buffer | string, _encoding, callback) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      totalBytes += buffer.length;
+      if (totalBytes > config.maxSseResponseBytes) {
+        callback(new SseResponseTooLargeError());
+        return;
+      }
+      callback(null, buffer);
+    },
+  });
+  source.on('error', (err) => limited.destroy(err));
+  limited.on('error', () => source.destroy());
+  return source.pipe(limited);
 }
 
 async function readBufferedResponse(response: Response): Promise<string> {
@@ -286,7 +311,7 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
   if (shouldObfuscate && contentType.includes('text/event-stream')) {
     res.writeHead(upstreamResponse.status, buildResponseHeaders(upstreamResponse));
     const upstreamNodeStream = Readable.fromWeb(upstreamResponse.body as import('node:stream/web').ReadableStream);
-    const rehydratedStream = Readable.from(rehydrateSseStream(upstreamNodeStream, sessionRenameMap));
+    const rehydratedStream = limitSseStream(Readable.from(rehydrateSseStream(upstreamNodeStream, sessionRenameMap)));
     rehydratedStream.on('error', (err) => {
       logger.error('response.stream_error', { method, path: logPath, errorType: errorType(err) });
       res.destroy(err);

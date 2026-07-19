@@ -5,6 +5,7 @@ export interface WardenConfig {
   upstreamHeadersTimeoutMs: number;
   maxRequestBodyBytes: number;
   maxBufferedResponseBytes: number;
+  maxSseResponseBytes: number;
   maxSessionMappings: number;
   redactComments: boolean;
   redactStrings: boolean;
@@ -36,6 +37,7 @@ export function readConfig(env: NodeJS.ProcessEnv): WardenConfig {
   const upstreamHeadersTimeoutMs = readPositiveInteger(env, 'WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS', 30000);
   const maxRequestBodyBytes = readPositiveInteger(env, 'WARDEN_MAX_REQUEST_BODY_BYTES', 10 * 1024 * 1024);
   const maxBufferedResponseBytes = readPositiveInteger(env, 'WARDEN_MAX_BUFFERED_RESPONSE_BYTES', 10 * 1024 * 1024);
+  const maxSseResponseBytes = readPositiveInteger(env, 'WARDEN_MAX_SSE_RESPONSE_BYTES', 50 * 1024 * 1024);
   const maxSessionMappings = readPositiveInteger(env, 'WARDEN_MAX_SESSION_MAPPINGS', 10000);
 
   return {
@@ -45,6 +47,7 @@ export function readConfig(env: NodeJS.ProcessEnv): WardenConfig {
     upstreamHeadersTimeoutMs,
     maxRequestBodyBytes,
     maxBufferedResponseBytes,
+    maxSseResponseBytes,
     maxSessionMappings,
     redactComments: env.WARDEN_REDACT_COMMENTS !== '0',
     redactStrings: env.WARDEN_REDACT_STRINGS !== '0',
