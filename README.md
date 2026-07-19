@@ -63,6 +63,7 @@ To go back to talking to Anthropic directly, `unset ANTHROPIC_BASE_URL`
 | `WARDEN_MAX_BUFFERED_RESPONSE_BYTES` | `10485760` | Maximum JSON response size buffered for rehydration; larger responses receive a `502` |
 | `WARDEN_MAX_SSE_RESPONSE_BYTES` | `52428800` | Maximum total rehydrated SSE response size; larger streams are terminated |
 | `WARDEN_MAX_SESSION_MAPPINGS` | `10000` | Maximum in-memory identifier/token mappings retained by one running proxy |
+| `WARDEN_SESSION_MAPPING_TTL_MS` | `1800000` | Idle lifetime of an in-memory mapping before it expires |
 | `WARDEN_VERBOSE` | unset | Set to `1` for detailed JSON logs (see **Watching it work**) |
 | `WARDEN_REDACT_COMMENTS` | enabled | Set to `0` to stop redacting comments (see **What gets obfuscated**) |
 | `WARDEN_REDACT_STRINGS` | enabled | Set to `0` to stop redacting long, business-sounding string literals (see **What gets obfuscated**) |
@@ -192,6 +193,9 @@ either off):
   by default).** When the limit is reached, the oldest mapping is evicted;
   an old token may then remain synthetic in a rehydrated response rather than
   allowing unbounded memory growth.
+- **Mappings also expire after `WARDEN_SESSION_MAPPING_TTL_MS` of inactivity
+  (30 minutes by default).** Using a mapping refreshes its idle lifetime;
+  expired tokens remain synthetic rather than restoring stale sensitive data.
 - **Template literals (`` `...` ``) are never touched**, even ones that
   are 100% static, long, multi-word business text. They commonly mix
   static text with interpolated expressions (`` `Order ${id} exceeds the

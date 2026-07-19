@@ -13,6 +13,7 @@ describe('readConfig', () => {
     expect(config.maxRequestBodyBytes).toBe(10 * 1024 * 1024);
     expect(config.maxBufferedResponseBytes).toBe(10 * 1024 * 1024);
     expect(config.maxSessionMappings).toBe(10000);
+    expect(config.sessionMappingTtlMs).toBe(30 * 60 * 1000);
   });
 
   it.each([
@@ -26,6 +27,7 @@ describe('readConfig', () => {
     ['WARDEN_MAX_REQUEST_BODY_BYTES', '-1'],
     ['WARDEN_MAX_BUFFERED_RESPONSE_BYTES', 'nope'],
     ['WARDEN_MAX_SESSION_MAPPINGS', '0'],
+    ['WARDEN_SESSION_MAPPING_TTL_MS', 'nope'],
   ])('rejects invalid %s=%s', (key, value) => {
     expect(() => readConfig({ [key]: value })).toThrow(`Invalid ${key}`);
   });
@@ -50,6 +52,7 @@ describe('readConfig', () => {
       WARDEN_MAX_REQUEST_BODY_BYTES: '1024',
       WARDEN_MAX_BUFFERED_RESPONSE_BYTES: '2048',
       WARDEN_MAX_SESSION_MAPPINGS: '3',
+      WARDEN_SESSION_MAPPING_TTL_MS: '60000',
     });
 
     expect(config).toMatchObject({
@@ -62,6 +65,7 @@ describe('readConfig', () => {
       maxRequestBodyBytes: 1024,
       maxBufferedResponseBytes: 2048,
       maxSessionMappings: 3,
+      sessionMappingTtlMs: 60000,
     });
   });
 });

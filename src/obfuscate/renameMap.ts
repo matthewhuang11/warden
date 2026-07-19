@@ -25,17 +25,28 @@ const KIND_PREFIX: Record<RenameKind, string> = {
 export class RenameMap {
   private readonly toSynthetic = new Map<string, string>();
   private readonly toOriginal = new Map<string, string>();
+  private readonly lastUsedAt = new Map<string, number>();
   private readonly countersByKind = new Map<RenameKind, number>();
 
-  constructor(private readonly maxEntries = 10_000) {
-    if (!Number.isInteger(maxEntries) || maxEntries <= 0) {
+  constructor(
+    private readonly maxEntries = 10_000,
+    private readonly ttlMs = 30 * 60 * 1000,
+  ) {
+    if (!Number.isInteger(maxEntries) || maxEntries <= 0 || !Number.isInteger(ttlMs) || ttlMs <= 0) {
       throw new Error(`Invalid RenameMap maxEntries: ${maxEntries}`);
     }
   }
 
   /** Looks up an existing mapping without creating one. */
   get(originalName: string): string | undefined {
-    return this.toSynthetic.get(originalName);
+    const synthetic = this.toSynthetic.get(originalName);
+    if (synthetic === undefined) return undefined;
+    if (this.isExpired(originalName)) {
+      this.remove(originalName);
+      return undefined;
+    }
+    this.lastUsedAt.set(originalName, Date.now());
+    return synthetic;
   }
 
   getOrCreate(originalName: string, kind: RenameKind): string {
@@ -47,34 +58,61 @@ export class RenameMap {
     this.countersByKind.set(kind, next);
     const synthetic = `${prefix}_${next.toString(36)}`;
 
+    this.purgeExpired();
     if (this.toSynthetic.size >= this.maxEntries) {
       const oldest = this.toSynthetic.keys().next().value as string | undefined;
       if (oldest !== undefined) {
-        const oldestSynthetic = this.toSynthetic.get(oldest);
-        this.toSynthetic.delete(oldest);
-        if (oldestSynthetic !== undefined) this.toOriginal.delete(oldestSynthetic);
+        this.remove(oldest);
       }
     }
 
     this.toSynthetic.set(originalName, synthetic);
     this.toOriginal.set(synthetic, originalName);
+    this.lastUsedAt.set(originalName, Date.now());
     return synthetic;
   }
 
   reverseLookup(syntheticName: string): string | undefined {
-    return this.toOriginal.get(syntheticName);
+    const originalName = this.toOriginal.get(syntheticName);
+    if (originalName === undefined) return undefined;
+    if (this.isExpired(originalName)) {
+      this.remove(originalName);
+      return undefined;
+    }
+    this.lastUsedAt.set(originalName, Date.now());
+    return originalName;
   }
 
   get size(): number {
+    this.purgeExpired();
     return this.toSynthetic.size;
   }
 
   syntheticNames(): string[] {
+    this.purgeExpired();
     return [...this.toOriginal.keys()];
   }
 
   /** Every original name the session has already committed to a synthetic for. */
   originalNames(): string[] {
+    this.purgeExpired();
     return [...this.toSynthetic.keys()];
+  }
+
+  private isExpired(originalName: string): boolean {
+    return Date.now() - (this.lastUsedAt.get(originalName) ?? 0) >= this.ttlMs;
+  }
+
+  private purgeExpired(): void {
+    for (const originalName of this.toSynthetic.keys()) {
+      if (this.isExpired(originalName)) this.remove(originalName);
+    }
+  }
+
+  private remove(originalName: string): void {
+    const synthetic = this.toSynthetic.get(originalName);
+    this.toSynthetic.delete(originalName);
+    this.lastUsedAt.delete(originalName);
+    if (synthetic !== undefined) this.toOriginal.delete(synthetic);
   }
 }

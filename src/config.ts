@@ -10,6 +10,7 @@ export interface WardenConfig {
   maxBufferedResponseBytes: number;
   maxSseResponseBytes: number;
   maxSessionMappings: number;
+  sessionMappingTtlMs: number;
   redactComments: boolean;
   redactStrings: boolean;
 }
@@ -49,6 +50,7 @@ export function readConfig(env: NodeJS.ProcessEnv): WardenConfig {
   const maxBufferedResponseBytes = readPositiveInteger(env, 'WARDEN_MAX_BUFFERED_RESPONSE_BYTES', 10 * 1024 * 1024);
   const maxSseResponseBytes = readPositiveInteger(env, 'WARDEN_MAX_SSE_RESPONSE_BYTES', 50 * 1024 * 1024);
   const maxSessionMappings = readPositiveInteger(env, 'WARDEN_MAX_SESSION_MAPPINGS', 10000);
+  const sessionMappingTtlMs = readPositiveInteger(env, 'WARDEN_SESSION_MAPPING_TTL_MS', 30 * 60 * 1000);
 
   return {
     port,
@@ -62,6 +64,7 @@ export function readConfig(env: NodeJS.ProcessEnv): WardenConfig {
     maxBufferedResponseBytes,
     maxSseResponseBytes,
     maxSessionMappings,
+    sessionMappingTtlMs,
     redactComments: env.WARDEN_REDACT_COMMENTS !== '0',
     redactStrings: env.WARDEN_REDACT_STRINGS !== '0',
   };
