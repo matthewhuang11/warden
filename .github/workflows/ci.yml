@@ -29,7 +29,7 @@ jobs:
         run: git diff --exit-code -- package-lock.json
 
       - name: Audit dependencies
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=moderate
 
       - name: Run tests
         run: npm test
@@ -41,4 +41,39 @@ jobs:
         run: WARDEN_FUZZ_SEED_COUNT=50 npm run fuzz:batch
 
       - name: Typecheck and build
+        run: npm run build
+
+  dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Verify lockfile stability
+        run: git diff --exit-code -- package-lock.json
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=moderate
+
+      - name: Test aggregate-only data boundary
+        run: npm test
+
+      - name: Typecheck
+        run: npm run lint
+
+      - name: Build production dashboard
         run: npm run build
