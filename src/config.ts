@@ -1,6 +1,7 @@
 export interface WardenConfig {
   port: number;
   upstreamBaseUrl: string;
+  authToken?: string;
   obfuscationEnabled: boolean;
   upstreamHeadersTimeoutMs: number;
   clientHeadersTimeoutMs: number;
@@ -36,6 +37,11 @@ export function readConfig(env: NodeJS.ProcessEnv): WardenConfig {
     throw new Error(`Invalid WARDEN_UPSTREAM_BASE_URL: ${upstreamBaseUrl}`);
   }
 
+  const authToken = env.WARDEN_AUTH_TOKEN;
+  if (authToken !== undefined && authToken.length === 0) {
+    throw new Error('Invalid WARDEN_AUTH_TOKEN: token must not be empty');
+  }
+
   const upstreamHeadersTimeoutMs = readPositiveInteger(env, 'WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS', 30000);
   const clientHeadersTimeoutMs = readPositiveInteger(env, 'WARDEN_CLIENT_HEADERS_TIMEOUT_MS', 15000);
   const requestTimeoutMs = readPositiveInteger(env, 'WARDEN_REQUEST_TIMEOUT_MS', 120000);
@@ -47,6 +53,7 @@ export function readConfig(env: NodeJS.ProcessEnv): WardenConfig {
   return {
     port,
     upstreamBaseUrl,
+    authToken,
     obfuscationEnabled: env.WARDEN_OBFUSCATION_DISABLED !== '1',
     upstreamHeadersTimeoutMs,
     clientHeadersTimeoutMs,

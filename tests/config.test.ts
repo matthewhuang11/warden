@@ -7,6 +7,7 @@ describe('readConfig', () => {
 
     expect(config.port).toBe(8787);
     expect(config.upstreamBaseUrl).toBe('https://api.anthropic.com');
+    expect(config.authToken).toBeUndefined();
     expect(config.clientHeadersTimeoutMs).toBe(15000);
     expect(config.requestTimeoutMs).toBe(120000);
     expect(config.maxRequestBodyBytes).toBe(10 * 1024 * 1024);
@@ -18,6 +19,7 @@ describe('readConfig', () => {
     ['WARDEN_PORT', '0'],
     ['WARDEN_PORT', '65536'],
     ['WARDEN_PORT', '8787oops'],
+    ['WARDEN_AUTH_TOKEN', ''],
     ['WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS', '1.5'],
     ['WARDEN_CLIENT_HEADERS_TIMEOUT_MS', 'nope'],
     ['WARDEN_REQUEST_TIMEOUT_MS', '0'],
@@ -41,6 +43,7 @@ describe('readConfig', () => {
     const config = readConfig({
       WARDEN_PORT: '9000',
       WARDEN_UPSTREAM_BASE_URL: 'http://127.0.0.1:4321',
+      WARDEN_AUTH_TOKEN: 'local-test-token',
       WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS: '500',
       WARDEN_CLIENT_HEADERS_TIMEOUT_MS: '1000',
       WARDEN_REQUEST_TIMEOUT_MS: '5000',
@@ -52,6 +55,7 @@ describe('readConfig', () => {
     expect(config).toMatchObject({
       port: 9000,
       upstreamBaseUrl: 'http://127.0.0.1:4321',
+      authToken: 'local-test-token',
       upstreamHeadersTimeoutMs: 500,
       clientHeadersTimeoutMs: 1000,
       requestTimeoutMs: 5000,

@@ -54,6 +54,7 @@ To go back to talking to Anthropic directly, `unset ANTHROPIC_BASE_URL`
 |---|---|---|
 | `WARDEN_PORT` | `8787` | Local port the proxy listens on |
 | `WARDEN_UPSTREAM_BASE_URL` | `https://api.anthropic.com` | Where requests are forwarded |
+| `WARDEN_AUTH_TOKEN` | unset | Optional shared token required in the `x-warden-token` header; requests without it receive a `401` |
 | `WARDEN_OBFUSCATION_DISABLED` | unset | Set to `1` to run as a pure passthrough (no obfuscation) |
 | `WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS` | `30000` | How long to wait for the upstream to start responding before failing the request with a `504` |
 | `WARDEN_CLIENT_HEADERS_TIMEOUT_MS` | `15000` | Maximum time allowed to receive inbound request headers |

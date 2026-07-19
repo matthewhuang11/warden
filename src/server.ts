@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage } from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import type { Server } from 'node:http';
 import { Readable, Transform } from 'node:stream';
 import { config } from './config.js';
@@ -69,6 +70,15 @@ function safeLogPath(path: string): string {
 
 function errorType(err: unknown): string {
   return err instanceof Error ? err.name : typeof err;
+}
+
+function hasValidAuthToken(req: IncomingMessage): boolean {
+  if (config.authToken === undefined) return true;
+  const supplied = req.headers['x-warden-token'];
+  if (typeof supplied !== 'string') return false;
+  const expected = Buffer.from(config.authToken);
+  const actual = Buffer.from(supplied);
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
 export function createProxyServer(): Server {
@@ -214,6 +224,15 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
   const method = req.method ?? 'GET';
   const path = req.url ?? '/';
   const logPath = safeLogPath(path);
+
+  if (!hasValidAuthToken(req)) {
+    res.writeHead(401, {
+      'content-type': 'application/json',
+      'www-authenticate': 'Bearer realm="warden"',
+    });
+    res.end(JSON.stringify({ error: 'unauthorized' }));
+    return;
+  }
 
   // Warden is a forward proxy for one configured origin, not an open proxy.
   // Reject absolute-form and protocol-relative request targets before URL

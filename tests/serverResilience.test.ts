@@ -18,6 +18,7 @@ function close(server: Server): Promise<void> {
 }
 
 const originalUpstreamBaseUrl = config.upstreamBaseUrl;
+const originalAuthToken = config.authToken;
 const originalUpstreamHeadersTimeoutMs = config.upstreamHeadersTimeoutMs;
 const originalMaxRequestBodyBytes = config.maxRequestBodyBytes;
 const originalMaxBufferedResponseBytes = config.maxBufferedResponseBytes;
@@ -27,6 +28,7 @@ const openServers: Server[] = [];
 
 afterEach(async () => {
   config.upstreamBaseUrl = originalUpstreamBaseUrl;
+  config.authToken = originalAuthToken;
   config.upstreamHeadersTimeoutMs = originalUpstreamHeadersTimeoutMs;
   config.maxRequestBodyBytes = originalMaxRequestBodyBytes;
   config.maxBufferedResponseBytes = originalMaxBufferedResponseBytes;
@@ -173,6 +175,34 @@ describe('upstream target isolation', () => {
     });
 
     expect(absoluteTargetStatus).toBe(400);
+    expect(upstreamRequests).toBe(1);
+  });
+});
+
+describe('optional client authentication', () => {
+  it('rejects unauthenticated requests before contacting the upstream', async () => {
+    config.authToken = 'test-token';
+    let upstreamRequests = 0;
+    const { proxyUrl } = await startProxyWithUpstream((_req, res) => {
+      upstreamRequests += 1;
+      res.writeHead(200);
+      res.end();
+    });
+
+    const unauthorized = await fetch(`${proxyUrl}/v1/messages`, {
+      method: 'POST',
+      body: '{}',
+    });
+    expect(unauthorized.status).toBe(401);
+    expect(await unauthorized.json()).toEqual({ error: 'unauthorized' });
+    expect(upstreamRequests).toBe(0);
+
+    const authorized = await fetch(`${proxyUrl}/v1/messages`, {
+      method: 'POST',
+      headers: { 'x-warden-token': 'test-token' },
+      body: '{}',
+    });
+    expect(authorized.status).toBe(200);
     expect(upstreamRequests).toBe(1);
   });
 });
