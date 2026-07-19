@@ -63,9 +63,10 @@ describe('stealth aliases', () => {
     );
     const replacementNames = map.syntheticNames().filter((name) => /^[A-Za-z_$]/.test(name));
     expect(replacementNames).toHaveLength(7);
-    expect(replacementNames.every((name) => /cache/i.test(name))).toBe(true);
-    expect(result.output).toContain('interface CacheEntry');
-    expect(result.output).toContain('const cacheState = 61;');
+    expect(result.output).toContain('interface PolicyInput');
+    expect(result.output).toContain('const durationThreshold = 61;');
+    expect(result.output).toContain('function evaluatePolicy');
+    expect(result.output).not.toMatch(/(?:policy|cache|event|config)[A-Z][A-Za-z]+\d+/);
     expect(rehydrateText(result.output, map)).toBe(source);
   });
 

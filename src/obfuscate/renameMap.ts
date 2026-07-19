@@ -22,92 +22,92 @@ interface StealthTheme {
 const STEALTH_THEMES: readonly StealthTheme[] = [
   {
     names: {
-      function: ['readCacheEntry', 'validateCacheEntry', 'resolveCacheState', 'writeCacheEntry', 'buildCacheKey'],
+      function: ['evaluatePolicy', 'validatePolicyInput', 'resolvePolicyDecision', 'buildPolicyResult', 'selectPolicyRule'],
       variable: [
-        'cacheEntry',
-        'cacheState',
-        'cacheKey',
-        'cachedResult',
-        'cacheOptions',
-        'cacheContext',
-        'cachePolicy',
-        'cacheWindow',
-        'cacheLimit',
-        'cacheThreshold',
-        'cacheAdjustment',
-        'cacheCandidate',
-        'cacheBaseline',
-        'cacheFactor',
-        'cacheTotal',
-        'cacheStatus',
-        'cacheRecord',
-        'cacheValue',
-        'cacheCount',
-        'cacheIndex',
+        'baselineValue',
+        'durationThreshold',
+        'policyAdjustment',
+        'reviewThreshold',
+        'maximumLimit',
+        'primaryComponent',
+        'secondaryComponent',
+        'conditionalAdjustment',
+        'calculatedLimit',
+        'resultingAmount',
+        'effectiveWindow',
+        'evaluationStatus',
+        'inputRecord',
+        'policyOptions',
+        'selectedRule',
+        'weightedFactor',
+        'aggregateTotal',
+        'decisionState',
+        'recordCount',
+        'recordIndex',
       ],
-      class: ['CacheStore', 'CacheReader', 'CacheWriter', 'CacheResolver', 'CacheCoordinator'],
-      type: ['CacheEntry', 'CacheState', 'CacheContext', 'CacheResult', 'CacheOptions', 'CacheSnapshot'],
-      string: ['cacheDescription', 'cacheLabel', 'cacheMessage', 'cacheNote', 'cacheSummary', 'cacheDetails'],
+      class: ['PolicyStore', 'PolicyReader', 'PolicyWriter', 'PolicyResolver', 'PolicyCoordinator'],
+      type: ['PolicyInput', 'PolicyDecision', 'PolicyContext', 'PolicyResult', 'PolicyOptions', 'PolicySnapshot'],
+      string: ['policyDescription', 'policyLabel', 'policyMessage', 'policyNote', 'policySummary', 'policyDetails'],
     },
   },
   {
     names: {
-      function: ['readEventPayload', 'validateEvent', 'resolveEventState', 'writeEventResult', 'buildEventKey'],
+      function: ['assessRecord', 'validateRecord', 'determineOutcome', 'createAssessment', 'selectAssessmentRule'],
       variable: [
-        'eventPayload',
-        'eventState',
-        'eventKey',
-        'eventResult',
-        'eventOptions',
-        'eventContext',
-        'eventPolicy',
-        'eventWindow',
-        'eventLimit',
-        'eventThreshold',
-        'eventAdjustment',
-        'eventCandidate',
-        'eventBaseline',
-        'eventFactor',
-        'eventTotal',
-        'eventStatus',
-        'eventRecord',
-        'eventValue',
-        'eventCount',
-        'eventIndex',
+        'baseAmount',
+        'ageThreshold',
+        'riskAdjustment',
+        'escalationThreshold',
+        'upperLimit',
+        'initialComponent',
+        'supplementalComponent',
+        'eligibilityAdjustment',
+        'assessedLimit',
+        'finalAmount',
+        'responseWindow',
+        'assessmentStatus',
+        'subjectRecord',
+        'assessmentOptions',
+        'selectedCriterion',
+        'scoringFactor',
+        'combinedTotal',
+        'outcomeState',
+        'itemCount',
+        'itemIndex',
       ],
-      class: ['EventStore', 'EventReader', 'EventWriter', 'EventResolver', 'EventCoordinator'],
-      type: ['EventPayload', 'EventState', 'EventContext', 'EventResult', 'EventOptions', 'EventSnapshot'],
-      string: ['eventDescription', 'eventLabel', 'eventMessage', 'eventNote', 'eventSummary', 'eventDetails'],
+      class: ['AssessmentStore', 'AssessmentReader', 'AssessmentWriter', 'AssessmentResolver', 'AssessmentCoordinator'],
+      type: ['AssessmentInput', 'AssessmentOutcome', 'AssessmentContext', 'AssessmentResult', 'AssessmentOptions', 'AssessmentSnapshot'],
+      string: ['assessmentDescription', 'assessmentLabel', 'assessmentMessage', 'assessmentNote', 'assessmentSummary', 'assessmentDetails'],
     },
   },
   {
     names: {
-      function: ['readConfigValue', 'validateConfig', 'resolveConfigState', 'writeConfigValue', 'buildConfigKey'],
+      function: ['processRequest', 'validateRequest', 'determineRoute', 'createResponse', 'selectWorkflowRule'],
       variable: [
-        'configValue',
-        'configState',
-        'configKey',
-        'configResult',
-        'configOptions',
-        'configContext',
-        'configPolicy',
-        'configWindow',
-        'configLimit',
-        'configThreshold',
-        'configAdjustment',
-        'configCandidate',
-        'configBaseline',
-        'configFactor',
-        'configTotal',
-        'configStatus',
-        'configRecord',
-        'configValueSet',
-        'configCount',
-        'configIndex',
+        'defaultValue',
+        'timingThreshold',
+        'routeAdjustment',
+        'reviewBoundary',
+        'allowedMaximum',
+        'sourceComponent',
+        'additionalComponent',
+        'conditionalValue',
+        'computedValue',
+        'outputAmount',
+        'processingWindow',
+        'workflowStatus',
+        'requestRecord',
+        'workflowOptions',
+        'selectedRoute',
+        'priorityFactor',
+        'accumulatedTotal',
+        'responseState',
+        'requestCount',
+        'requestIndex',
       ],
-      class: ['ConfigStore', 'ConfigReader', 'ConfigWriter', 'ConfigResolver', 'ConfigCoordinator'],
-      type: ['ConfigValue', 'ConfigState', 'ConfigContext', 'ConfigResult', 'ConfigOptions', 'ConfigSnapshot'],
-      string: ['configDescription', 'configLabel', 'configMessage', 'configNote', 'configSummary', 'configDetails'],
+      class: ['WorkflowStore', 'WorkflowReader', 'WorkflowWriter', 'WorkflowResolver', 'WorkflowCoordinator'],
+      type: ['WorkflowRequest', 'WorkflowResponse', 'WorkflowContext', 'WorkflowResult', 'WorkflowOptions', 'WorkflowSnapshot'],
+      string: ['workflowDescription', 'workflowLabel', 'workflowMessage', 'workflowNote', 'workflowSummary', 'workflowDetails'],
     },
   },
 ];
@@ -128,6 +128,7 @@ export class RenameMap {
   private readonly countersByKind = new Map<RenameKind, number>();
   private forbiddenNames = new Set<string>();
   private readonly stealthTheme: StealthTheme;
+  private stealthFallbackUsed = false;
 
   constructor(
     private readonly maxEntries = 10_000,
@@ -161,6 +162,10 @@ export class RenameMap {
 
   get isStealth(): boolean {
     return this.style === 'stealth';
+  }
+
+  get usedStealthFallback(): boolean {
+    return this.stealthFallbackUsed;
   }
 
   /** Looks up an existing mapping without creating one. */
@@ -276,6 +281,7 @@ export class RenameMap {
       }
     }
 
+    this.stealthFallbackUsed = true;
     let suffix = counter.toString(36);
     let candidate = `${names[(counter - 1) % names.length]}${suffix}`;
     while (candidate === originalName || this.forbiddenNames.has(candidate) || this.toOriginal.has(candidate)) {
