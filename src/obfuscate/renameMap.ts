@@ -19,10 +19,48 @@ interface StealthTheme {
   names: Record<RenameKind, readonly string[]>;
 }
 
+const STEALTH_NAME_QUALIFIERS = [
+  'current',
+  'pending',
+  'resolved',
+  'normalized',
+  'effective',
+  'selected',
+  'available',
+  'requested',
+  'configured',
+  'previous',
+  'next',
+  'default',
+  'active',
+  'candidate',
+  'computed',
+  'stored',
+] as const;
+
+const STEALTH_FUNCTION_SUFFIXES = [
+  'Record',
+  'Request',
+  'State',
+  'Candidate',
+  'Context',
+  'Input',
+  'Result',
+  'Value',
+  'Item',
+  'Batch',
+  'Entry',
+  'Payload',
+  'Options',
+  'Snapshot',
+  'Details',
+  'Response',
+] as const;
+
 const STEALTH_THEMES: readonly StealthTheme[] = [
   {
     names: {
-      function: ['evaluatePolicy', 'validatePolicyInput', 'resolvePolicyDecision', 'buildPolicyResult', 'selectPolicyRule'],
+      function: ['evaluatePolicy', 'resolvePolicy', 'applyPolicy', 'calculatePolicyResult', 'determinePolicyOutcome'],
       variable: [
         'baselineValue',
         'durationThreshold',
@@ -52,7 +90,7 @@ const STEALTH_THEMES: readonly StealthTheme[] = [
   },
   {
     names: {
-      function: ['assessRecord', 'validateRecord', 'determineOutcome', 'createAssessment', 'selectAssessmentRule'],
+      function: ['assessRecord', 'determineOutcome', 'calculateAssessment', 'resolveAssessment', 'buildAssessmentResult'],
       variable: [
         'baseAmount',
         'ageThreshold',
@@ -82,7 +120,7 @@ const STEALTH_THEMES: readonly StealthTheme[] = [
   },
   {
     names: {
-      function: ['processRequest', 'validateRequest', 'determineRoute', 'createResponse', 'selectWorkflowRule'],
+      function: ['processRequest', 'determineRoute', 'resolveWorkflow', 'buildResponse', 'applyWorkflow'],
       variable: [
         'defaultValue',
         'timingThreshold',
@@ -281,6 +319,17 @@ export class RenameMap {
       }
     }
 
+    const extensions = kind === 'function' ? STEALTH_FUNCTION_SUFFIXES : STEALTH_NAME_QUALIFIERS;
+    for (const extension of extensions) {
+      for (let offset = 0; offset < names.length; offset++) {
+        const baseName = names[(counter - 1 + offset) % names.length];
+        const candidate = buildExtendedName(baseName, kind, extension);
+        if (candidate !== originalName && !this.forbiddenNames.has(candidate) && !this.toOriginal.has(candidate)) {
+          return candidate;
+        }
+      }
+    }
+
     this.stealthFallbackUsed = true;
     let suffix = counter.toString(36);
     let candidate = `${names[(counter - 1) % names.length]}${suffix}`;
@@ -290,4 +339,13 @@ export class RenameMap {
     }
     return candidate;
   }
+}
+
+function buildExtendedName(baseName: string, kind: RenameKind, extension: string): string {
+  if (kind === 'function') return `${baseName}${extension}`;
+  const capitalizedBase = `${baseName[0].toUpperCase()}${baseName.slice(1)}`;
+  if (kind === 'class' || kind === 'type') {
+    return `${extension[0].toUpperCase()}${extension.slice(1)}${baseName}`;
+  }
+  return `${extension}${capitalizedBase}`;
 }

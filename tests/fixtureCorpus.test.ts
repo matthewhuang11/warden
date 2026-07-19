@@ -42,12 +42,13 @@ describe('stealth fixture corpus', () => {
     expect(rehydrateText(result.output, map)).toBe(source);
   });
 
-  it.each([0, 1, 2])('does not exhaust stealth variable vocabulary for the corpus in theme %i', async (theme) => {
+  it.each([0, 1, 2])('does not exhaust stealth vocabulary across one corpus session in theme %i', async (theme) => {
+    const map = new RenameMap(1_000, 60_000, 'stealth', theme);
     for (const fixturePath of fixturePaths) {
       const source = await readFile(fixturePath, 'utf8');
-      const map = new RenameMap(1_000, 60_000, 'stealth', theme);
-      await obfuscateCode(source, map);
+      const result = await obfuscateCode(source, map);
       expect(map.usedStealthFallback, fixturePath).toBe(false);
+      expect(rehydrateText(result.output, map), fixturePath).toBe(source);
     }
   });
 });
