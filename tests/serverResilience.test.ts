@@ -20,6 +20,7 @@ function close(server: Server): Promise<void> {
 const originalUpstreamBaseUrl = config.upstreamBaseUrl;
 const originalUpstreamHeadersTimeoutMs = config.upstreamHeadersTimeoutMs;
 const originalMaxRequestBodyBytes = config.maxRequestBodyBytes;
+const originalMaxBufferedResponseBytes = config.maxBufferedResponseBytes;
 
 const openServers: Server[] = [];
 
@@ -27,6 +28,7 @@ afterEach(async () => {
   config.upstreamBaseUrl = originalUpstreamBaseUrl;
   config.upstreamHeadersTimeoutMs = originalUpstreamHeadersTimeoutMs;
   config.maxRequestBodyBytes = originalMaxRequestBodyBytes;
+  config.maxBufferedResponseBytes = originalMaxBufferedResponseBytes;
   await Promise.all(openServers.splice(0).map(close));
 });
 
@@ -201,6 +203,25 @@ describe('request body limits', () => {
 
     expect(res.status).toBe(413);
     expect(upstreamRequests).toBe(0);
+  });
+});
+
+describe('buffered response limits', () => {
+  it('rejects an oversized JSON response before buffering it in memory', async () => {
+    config.maxBufferedResponseBytes = 64;
+    const { proxyUrl } = await startProxyWithUpstream((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ value: 'x'.repeat(100) }));
+    });
+
+    const res = await fetch(`${proxyUrl}/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ messages: [] }),
+    });
+
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: 'upstream_response_too_large' });
   });
 });
 

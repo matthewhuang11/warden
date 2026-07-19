@@ -57,6 +57,7 @@ To go back to talking to Anthropic directly, `unset ANTHROPIC_BASE_URL`
 | `WARDEN_OBFUSCATION_DISABLED` | unset | Set to `1` to run as a pure passthrough (no obfuscation) |
 | `WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS` | `30000` | How long to wait for the upstream to start responding before failing the request with a `504` |
 | `WARDEN_MAX_REQUEST_BODY_BYTES` | `10485760` | Maximum request body size accepted by the proxy; larger requests receive a `413` before forwarding |
+| `WARDEN_MAX_BUFFERED_RESPONSE_BYTES` | `10485760` | Maximum JSON response size buffered for rehydration; larger responses receive a `502` |
 | `WARDEN_VERBOSE` | unset | Set to `1` for detailed JSON logs (see **Watching it work**) |
 | `WARDEN_REDACT_COMMENTS` | enabled | Set to `0` to stop redacting comments (see **What gets obfuscated**) |
 | `WARDEN_REDACT_STRINGS` | enabled | Set to `0` to stop redacting long, business-sounding string literals (see **What gets obfuscated**) |

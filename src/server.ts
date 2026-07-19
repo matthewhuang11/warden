@@ -102,6 +102,46 @@ class RequestBodyTooLargeError extends Error {
   }
 }
 
+class ResponseBodyTooLargeError extends Error {
+  constructor() {
+    super('Upstream response exceeds the configured buffering limit');
+    this.name = 'ResponseBodyTooLargeError';
+  }
+}
+
+async function readBufferedResponse(response: Response): Promise<string> {
+  const declaredLength = response.headers.get('content-length');
+  if (declaredLength !== null) {
+    const bytes = Number.parseInt(declaredLength, 10);
+    if (Number.isSafeInteger(bytes) && bytes > config.maxBufferedResponseBytes) {
+      await response.body?.cancel();
+      throw new ResponseBodyTooLargeError();
+    }
+  }
+
+  if (!response.body) return '';
+
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = Buffer.from(value);
+      totalBytes += chunk.length;
+      if (totalBytes > config.maxBufferedResponseBytes) {
+        await reader.cancel();
+        throw new ResponseBodyTooLargeError();
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 async function prepareObfuscatedBody(raw: Buffer, path: string): Promise<string | Buffer> {
   let parsed: unknown;
   try {
@@ -208,8 +248,6 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
     clearTimeout(headersTimeout);
   }
 
-  res.writeHead(upstreamResponse.status, buildResponseHeaders(upstreamResponse));
-
   const logForwarded = () =>
     logger.info('request.forwarded', {
       method,
@@ -219,6 +257,7 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
     });
 
   if (!upstreamResponse.body) {
+    res.writeHead(upstreamResponse.status, buildResponseHeaders(upstreamResponse));
     res.end();
     logForwarded();
     return;
@@ -227,6 +266,7 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
   const contentType = upstreamResponse.headers.get('content-type') ?? '';
 
   if (shouldObfuscate && contentType.includes('text/event-stream')) {
+    res.writeHead(upstreamResponse.status, buildResponseHeaders(upstreamResponse));
     const upstreamNodeStream = Readable.fromWeb(upstreamResponse.body as import('node:stream/web').ReadableStream);
     const rehydratedStream = Readable.from(rehydrateSseStream(upstreamNodeStream, sessionRenameMap));
     rehydratedStream.on('error', (err) => {
@@ -239,7 +279,22 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
   }
 
   if (shouldObfuscate && contentType.includes('application/json')) {
-    const rawText = await upstreamResponse.text();
+    let rawText: string;
+    try {
+      rawText = await readBufferedResponse(upstreamResponse);
+    } catch (err) {
+      if (err instanceof ResponseBodyTooLargeError) {
+        logger.warn('rehydrate.response_too_large', {
+          method,
+          path,
+          maxBytes: config.maxBufferedResponseBytes,
+        });
+        res.writeHead(502, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'upstream_response_too_large' }));
+        return;
+      }
+      throw err;
+    }
     let output = rawText;
     try {
       const parsed = JSON.parse(rawText);
@@ -247,11 +302,13 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
     } catch (err) {
       logger.warn('rehydrate.response_not_json', { method, path, error: String(err) });
     }
+    res.writeHead(upstreamResponse.status, buildResponseHeaders(upstreamResponse));
     res.end(output);
     logForwarded();
     return;
   }
 
+  res.writeHead(upstreamResponse.status, buildResponseHeaders(upstreamResponse));
   const nodeStream = Readable.fromWeb(upstreamResponse.body as import('node:stream/web').ReadableStream);
   nodeStream.on('error', (err) => {
     logger.error('response.stream_error', { method, path, error: String(err) });
