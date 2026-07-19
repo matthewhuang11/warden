@@ -61,6 +61,26 @@ export function printObfuscationSummary(stats: TransformStats): void {
   sessionStatsPanel.record(stats);
 }
 
+export function formatExchangeRequestMarker(exchangeId: number, stats: TransformStats): string {
+  return `[Warden exchange ${exchangeId} request] intercepted; identifiers=${stats.totalIdentifiersRenamed} comments=${stats.commentsRedacted} strings=${stats.stringsRedacted} secrets=${stats.secretsRedacted}`;
+}
+
+export function formatExchangeResponseMarker(
+  exchangeId: number,
+  status: number,
+  durationMs: number,
+): string {
+  return `[Warden exchange ${exchangeId} response] returned; status=${status} durationMs=${durationMs}`;
+}
+
+export function printExchangeRequestMarker(exchangeId: number, stats: TransformStats): void {
+  console.log(formatExchangeRequestMarker(exchangeId, stats));
+}
+
+export function printExchangeResponseMarker(exchangeId: number, status: number, durationMs: number): void {
+  console.log(formatExchangeResponseMarker(exchangeId, status, durationMs));
+}
+
 export interface ProtectionTotals {
   identifiers: number;
   comments: number;

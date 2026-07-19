@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { formatUpstreamUrlForDisplay, TerminalStatsPanel } from '../src/consoleOutput.js';
+import {
+  formatExchangeRequestMarker,
+  formatExchangeResponseMarker,
+  formatUpstreamUrlForDisplay,
+  TerminalStatsPanel,
+} from '../src/consoleOutput.js';
 
 describe('formatUpstreamUrlForDisplay', () => {
   it('removes query strings and fragments before display or logging', () => {
@@ -10,6 +15,28 @@ describe('formatUpstreamUrlForDisplay', () => {
 
   it('returns a safe placeholder for invalid URLs', () => {
     expect(formatUpstreamUrlForDisplay('not a URL')).toBe('[invalid upstream URL]');
+  });
+});
+
+describe('exchange markers', () => {
+  it('correlates intercepted requests and returned responses with visible counts', () => {
+    const stats = {
+      blocksScanned: 1,
+      blocksRenamed: 1,
+      totalIdentifiersRenamed: 7,
+      commentsRedacted: 1,
+      stringsRedacted: 1,
+      secretsRedacted: 0,
+      auditEvents: [],
+      blocks: [],
+    };
+
+    expect(formatExchangeRequestMarker(42, stats)).toBe(
+      '[Warden exchange 42 request] intercepted; identifiers=7 comments=1 strings=1 secrets=0',
+    );
+    expect(formatExchangeResponseMarker(42, 200, 125)).toBe(
+      '[Warden exchange 42 response] returned; status=200 durationMs=125',
+    );
   });
 });
 

@@ -8,8 +8,15 @@ import { transformRequestBody } from './obfuscate/transformRequestBody.js';
 import { sessionRenameMap } from './session.js';
 import { rehydrateSseStream } from './rehydrate/sseRehydrate.js';
 import { rehydrateJsonValue } from './rehydrate/rehydrateJson.js';
-import { printObfuscationSummary } from './consoleOutput.js';
+import {
+  printExchangeRequestMarker,
+  printExchangeResponseMarker,
+  printObfuscationSummary,
+} from './consoleOutput.js';
 import { recordAuditEvents } from './audit/runtime.js';
+import type { TransformStats } from './obfuscate/transformRequestBody.js';
+
+let nextExchangeId = 0;
 
 // Headers that must not be blindly forwarded between hops: either they
 // describe the transport of *this* connection (and would be wrong for the
@@ -194,13 +201,31 @@ async function readBufferedResponse(response: Response): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-async function prepareObfuscatedBody(raw: Buffer, path: string): Promise<string | Buffer> {
+interface PreparedBody {
+  body: string | Buffer;
+  stats: TransformStats;
+}
+
+function emptyTransformStats(): TransformStats {
+  return {
+    blocksScanned: 0,
+    blocksRenamed: 0,
+    totalIdentifiersRenamed: 0,
+    commentsRedacted: 0,
+    stringsRedacted: 0,
+    secretsRedacted: 0,
+    auditEvents: [],
+    blocks: [],
+  };
+}
+
+async function prepareObfuscatedBody(raw: Buffer, path: string): Promise<PreparedBody> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw.toString('utf8'));
   } catch (err) {
     logger.warn('obfuscate.body_not_json', { path, errorType: errorType(err) });
-    return raw;
+    return { body: raw, stats: emptyTransformStats() };
   }
 
   // transformRequestBody is defensive about shape, but the body is
@@ -214,10 +239,10 @@ async function prepareObfuscatedBody(raw: Buffer, path: string): Promise<string 
     await recordAuditEvents(stats.auditEvents);
     logger.info('obfuscate.request_transformed', { path, ...stats });
     printObfuscationSummary(stats);
-    return JSON.stringify(transformed);
+    return { body: JSON.stringify(transformed), stats };
   } catch (err) {
     logger.error('obfuscate.transform_failed', { path, errorType: errorType(err) });
-    return raw;
+    return { body: raw, stats: emptyTransformStats() };
   }
 }
 
@@ -258,6 +283,13 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
 
   const hasBody = method !== 'GET' && method !== 'HEAD';
   const shouldObfuscate = config.obfuscationEnabled && hasBody && method === 'POST' && target.pathname === '/v1/messages';
+  const exchangeId = shouldObfuscate ? ++nextExchangeId : undefined;
+  let responseMarkerPrinted = false;
+  const markResponse = (status: number) => {
+    if (exchangeId === undefined || responseMarkerPrinted) return;
+    responseMarkerPrinted = true;
+    printExchangeResponseMarker(exchangeId, status, Date.now() - start);
+  };
 
   let body: ReadableStream | string | Buffer | undefined;
   if (hasBody) {
@@ -267,13 +299,21 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
     } catch (err) {
       if (err instanceof RequestBodyTooLargeError) {
         logger.warn('request.body_too_large', { method, path: logPath, maxBytes: config.maxRequestBodyBytes });
+        if (exchangeId !== undefined) printExchangeRequestMarker(exchangeId, emptyTransformStats());
         res.writeHead(413, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'request_body_too_large' }));
+        markResponse(413);
         return;
       }
       throw err;
     }
-    body = shouldObfuscate ? await prepareObfuscatedBody(raw, logPath) : raw;
+    if (shouldObfuscate) {
+      const prepared = await prepareObfuscatedBody(raw, logPath);
+      body = prepared.body;
+      printExchangeRequestMarker(exchangeId!, prepared.stats);
+    } else {
+      body = raw;
+    }
   }
   const isStreamingBody = typeof ReadableStream !== 'undefined' && body instanceof ReadableStream;
 
@@ -311,18 +351,21 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
         message: timedOut ? 'The upstream did not respond in time' : 'The upstream could not be reached',
       }),
     );
+    markResponse(timedOut ? 504 : 502);
     return;
   } finally {
     clearTimeout(headersTimeout);
   }
 
-  const logForwarded = () =>
+  const logForwarded = () => {
     logger.info('request.forwarded', {
       method,
       path: logPath,
       status: upstreamResponse.status,
       durationMs: Date.now() - start,
     });
+    markResponse(upstreamResponse.status);
+  };
 
   if (!upstreamResponse.body) {
     res.writeHead(upstreamResponse.status, buildResponseHeaders(upstreamResponse));
@@ -339,6 +382,7 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
     const rehydratedStream = limitSseStream(Readable.from(rehydrateSseStream(upstreamNodeStream, sessionRenameMap)));
     rehydratedStream.on('error', (err) => {
       logger.error('response.stream_error', { method, path: logPath, errorType: errorType(err) });
+      markResponse(upstreamResponse.status);
       res.destroy(err);
     });
     rehydratedStream.on('end', logForwarded);
@@ -359,6 +403,7 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
         });
         res.writeHead(502, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'upstream_response_too_large' }));
+        markResponse(502);
         return;
       }
       throw err;
@@ -380,6 +425,7 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
   const nodeStream = Readable.fromWeb(upstreamResponse.body as import('node:stream/web').ReadableStream);
   nodeStream.on('error', (err) => {
     logger.error('response.stream_error', { method, path: logPath, errorType: errorType(err) });
+    markResponse(upstreamResponse.status);
     res.destroy(err);
   });
   nodeStream.on('end', logForwarded);
