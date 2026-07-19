@@ -14,6 +14,9 @@ export interface TransformStats {
   blocksScanned: number;
   blocksRenamed: number;
   totalIdentifiersRenamed: number;
+  commentsRedacted: number;
+  stringsRedacted: number;
+  secretsRedacted: number;
   blocks: ObfuscatedBlockSummary[];
 }
 
@@ -37,7 +40,15 @@ export async function transformRequestBody(
   body: unknown,
   renameMap: RenameMap,
 ): Promise<{ body: unknown; stats: TransformStats }> {
-  const stats: TransformStats = { blocksScanned: 0, blocksRenamed: 0, totalIdentifiersRenamed: 0, blocks: [] };
+  const stats: TransformStats = {
+    blocksScanned: 0,
+    blocksRenamed: 0,
+    totalIdentifiersRenamed: 0,
+    commentsRedacted: 0,
+    stringsRedacted: 0,
+    secretsRedacted: 0,
+    blocks: [],
+  };
 
   if (!isRecord(body) || !Array.isArray(body.messages)) {
     return { body, stats };
@@ -152,6 +163,8 @@ async function obfuscateText(text: string, renameMap: RenameMap, stats: Transfor
   if (result.renamed) {
     stats.blocksRenamed += 1;
     stats.totalIdentifiersRenamed += result.renamedCount;
+    stats.commentsRedacted += result.commentsRedacted;
+    stats.stringsRedacted += result.stringsRedacted;
     stats.blocks.push({ label, renamedCount: result.renamedCount });
   }
   return result.output;

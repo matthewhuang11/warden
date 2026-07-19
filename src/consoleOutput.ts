@@ -58,11 +58,45 @@ export function printStartupError(port: number, message: string): void {
  * is printed for a pass-through request with zero renames, to keep normal
  * usage quiet. */
 export function printObfuscationSummary(stats: TransformStats): void {
-  if (stats.totalIdentifiersRenamed === 0) return;
-
-  const labels = [...new Set(stats.blocks.map((b) => b.label))];
-  const where = labels.length === 1 ? ` in ${labels[0]}` : labels.length > 1 ? ` across ${labels.length} files` : '';
-  const identifiers = stats.totalIdentifiersRenamed === 1 ? 'identifier' : 'identifiers';
-
-  console.log(`🔒 ${stats.totalIdentifiersRenamed} ${identifiers} protected${where}`);
+  sessionStatsPanel.record(stats);
 }
+
+export interface ProtectionTotals {
+  identifiers: number;
+  comments: number;
+  strings: number;
+  secrets: number;
+}
+
+interface StatsOutput {
+  isTTY?: boolean;
+  write(chunk: string): boolean;
+}
+
+/** Maintains one compact, in-place tally for the lifetime of the proxy. */
+export class TerminalStatsPanel {
+  private readonly totals: ProtectionTotals = { identifiers: 0, comments: 0, strings: 0, secrets: 0 };
+
+  constructor(private readonly output: StatsOutput) {}
+
+  record(stats: TransformStats): void {
+    this.totals.identifiers += stats.totalIdentifiersRenamed;
+    this.totals.comments += stats.commentsRedacted;
+    this.totals.strings += stats.stringsRedacted;
+    this.totals.secrets += stats.secretsRedacted;
+    if (this.output.isTTY) this.render();
+  }
+
+  get current(): ProtectionTotals {
+    return { ...this.totals };
+  }
+
+  private render(): void {
+    const { identifiers, comments, strings, secrets } = this.totals;
+    this.output.write(
+      `\r\x1b[2KWarden stats | identifiers: ${identifiers} | comments: ${comments} | strings: ${strings} | secrets: ${secrets}`,
+    );
+  }
+}
+
+export const sessionStatsPanel = new TerminalStatsPanel(process.stdout);
