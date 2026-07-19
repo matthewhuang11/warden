@@ -62,7 +62,7 @@ export function printObfuscationSummary(stats: TransformStats): void {
 }
 
 export function formatExchangeRequestMarker(exchangeId: number, stats: TransformStats): string {
-  return `[Warden exchange ${exchangeId} request] intercepted; identifiers=${stats.totalIdentifiersRenamed} comments=${stats.commentsRedacted} strings=${stats.stringsRedacted} secrets=${stats.secretsRedacted}`;
+  return `[Warden exchange ${exchangeId} request] intercepted; identifiers=${stats.totalIdentifiersRenamed} comments=${stats.commentsRedacted} strings=${stats.stringsRedacted} derived=${stats.derivedConstantsRedacted} secrets=${stats.secretsRedacted}`;
 }
 
 export function formatExchangeResponseMarker(
@@ -85,6 +85,7 @@ export interface ProtectionTotals {
   identifiers: number;
   comments: number;
   strings: number;
+  derived: number;
   secrets: number;
 }
 
@@ -95,7 +96,7 @@ interface StatsOutput {
 
 /** Maintains one compact, in-place tally for the lifetime of the proxy. */
 export class TerminalStatsPanel {
-  private readonly totals: ProtectionTotals = { identifiers: 0, comments: 0, strings: 0, secrets: 0 };
+  private readonly totals: ProtectionTotals = { identifiers: 0, comments: 0, strings: 0, derived: 0, secrets: 0 };
 
   constructor(private readonly output: StatsOutput) {}
 
@@ -103,6 +104,7 @@ export class TerminalStatsPanel {
     this.totals.identifiers += stats.totalIdentifiersRenamed;
     this.totals.comments += stats.commentsRedacted;
     this.totals.strings += stats.stringsRedacted;
+    this.totals.derived += stats.derivedConstantsRedacted;
     this.totals.secrets += stats.secretsRedacted;
     if (this.output.isTTY) this.render();
   }
@@ -112,9 +114,9 @@ export class TerminalStatsPanel {
   }
 
   private render(): void {
-    const { identifiers, comments, strings, secrets } = this.totals;
+    const { identifiers, comments, strings, derived, secrets } = this.totals;
     this.output.write(
-      `\r\x1b[2KWarden stats | identifiers: ${identifiers} | comments: ${comments} | strings: ${strings} | secrets: ${secrets}`,
+      `\r\x1b[2KWarden stats | identifiers: ${identifiers} | comments: ${comments} | strings: ${strings} | derived: ${derived} | secrets: ${secrets}`,
     );
   }
 }

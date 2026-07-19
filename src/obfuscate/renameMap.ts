@@ -120,6 +120,31 @@ export class RenameMap {
     this.countersByKind.set(kind, next);
     const synthetic = this.allocateName(originalName, kind, next);
 
+    this.store(originalName, synthetic);
+    return synthetic;
+  }
+
+  /** Registers a syntax-safe replacement chosen by a structural redaction
+   * pass. Returns undefined when that exact token already exists in the
+   * source or map, so callers can avoid ambiguous reverse substitution. */
+  registerExactReplacement(originalText: string, replacementText: string): string | undefined {
+    const existing = this.get(originalText);
+    if (existing) return existing === replacementText ? existing : undefined;
+    if (
+      originalText.length === 0 ||
+      replacementText.length === 0 ||
+      originalText === replacementText ||
+      this.forbiddenNames.has(replacementText) ||
+      this.toOriginal.has(replacementText)
+    ) {
+      return undefined;
+    }
+
+    this.store(originalText, replacementText);
+    return replacementText;
+  }
+
+  private store(originalName: string, synthetic: string): void {
     this.purgeExpired();
     if (this.toSynthetic.size >= this.maxEntries) {
       const oldest = this.toSynthetic.keys().next().value as string | undefined;
@@ -131,7 +156,6 @@ export class RenameMap {
     this.toSynthetic.set(originalName, synthetic);
     this.toOriginal.set(synthetic, originalName);
     this.lastUsedAt.set(originalName, Date.now());
-    return synthetic;
   }
 
   reverseLookup(syntheticName: string): string | undefined {

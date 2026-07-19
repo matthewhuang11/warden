@@ -43,4 +43,22 @@ describe('RenameMap bounds', () => {
     vi.advanceTimersByTime(900);
     expect(map.reverseLookup(synthetic)).toBe('refreshSecret');
   });
+
+  it('registers an exact structural replacement for normal reverse lookup', () => {
+    const map = new RenameMap();
+
+    expect(map.registerExactReplacement('PRIVATE_MESSAGE.length', '47')).toBe('47');
+    expect(map.get('PRIVATE_MESSAGE.length')).toBe('47');
+    expect(map.reverseLookup('47')).toBe('PRIVATE_MESSAGE.length');
+  });
+
+  it('refuses exact replacements that collide with source or existing mappings', () => {
+    const map = new RenameMap();
+    map.setForbiddenNames(['47']);
+    expect(map.registerExactReplacement('FIRST_MESSAGE.length', '47')).toBeUndefined();
+
+    map.clearForbiddenNames();
+    expect(map.registerExactReplacement('FIRST_MESSAGE.length', '47')).toBe('47');
+    expect(map.registerExactReplacement('SECOND_MESSAGE.length', '47')).toBeUndefined();
+  });
 });

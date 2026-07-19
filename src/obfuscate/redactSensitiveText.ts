@@ -11,6 +11,7 @@ export interface RedactionResult {
   output: string;
   commentsRedacted: number;
   stringsRedacted: number;
+  derivedConstantsRedacted: number;
   auditEvents: AuditEvent[];
 }
 
@@ -49,9 +50,18 @@ export function redactSensitiveText(
   const sites: { startIndex: number; endIndex: number; replacement: string }[] = [];
   let commentsRedacted = 0;
   let stringsRedacted = 0;
+  let derivedConstantsRedacted = 0;
   const auditEvents: AuditEvent[] = [];
+  const derivedSites = options.redactStrings ? findDerivedConstantSites(root, renameMap) : new Map<number, string>();
 
   function walk(node: Parser.SyntaxNode): void {
+    const derivedReplacement = derivedSites.get(node.id);
+    if (derivedReplacement !== undefined) {
+      sites.push({ startIndex: node.startIndex, endIndex: node.endIndex, replacement: derivedReplacement });
+      derivedConstantsRedacted += 1;
+      return;
+    }
+
     if (options.redactComments && node.type === 'comment') {
       sites.push({
         startIndex: node.startIndex,
@@ -90,7 +100,13 @@ export function redactSensitiveText(
   walk(root);
 
   if (sites.length === 0) {
-    return { output: source, commentsRedacted: 0, stringsRedacted: 0, auditEvents: [] };
+    return {
+      output: source,
+      commentsRedacted: 0,
+      stringsRedacted: 0,
+      derivedConstantsRedacted: 0,
+      auditEvents: [],
+    };
   }
 
   sites.sort((a, b) => b.startIndex - a.startIndex);
@@ -99,7 +115,66 @@ export function redactSensitiveText(
     output = output.slice(0, site.startIndex) + site.replacement + output.slice(site.endIndex);
   }
 
-  return { output, commentsRedacted, stringsRedacted, auditEvents };
+  return { output, commentsRedacted, stringsRedacted, derivedConstantsRedacted, auditEvents };
+}
+
+/** Finds top-level const initializers whose value is derived solely from
+ * the UTF-16 length of a qualifying sensitive string. Restricting this to
+ * one lexical scope avoids guessing across shadowed names; escaped string
+ * literals are skipped because their runtime length cannot be recovered
+ * safely from source bytes without evaluating code. */
+function findDerivedConstantSites(root: Parser.SyntaxNode, renameMap: RenameMap): Map<number, string> {
+  const sensitiveConstLengths = new Map<string, number>();
+  const declarators: Parser.SyntaxNode[] = [];
+
+  for (const topLevelNode of root.namedChildren) {
+    const declaration = unwrapTopLevelLexicalDeclaration(topLevelNode);
+    if (!declaration || declaration.children[0]?.text !== 'const') continue;
+
+    for (const child of declaration.namedChildren) {
+      if (child.type !== 'variable_declarator') continue;
+      declarators.push(child);
+      const nameNode = child.childForFieldName('name');
+      const valueNode = child.childForFieldName('value');
+      if (nameNode?.type !== 'identifier' || valueNode?.type !== 'string') continue;
+      const content = unescapedStringContent(valueNode);
+      if (content !== null && shouldRedactString(valueNode)) {
+        sensitiveConstLengths.set(nameNode.text, content.length);
+      }
+    }
+  }
+
+  const sites = new Map<number, string>();
+  for (const declarator of declarators) {
+    const valueNode = declarator.childForFieldName('value');
+    if (!valueNode || valueNode.type !== 'member_expression') continue;
+    const objectNode = valueNode.childForFieldName('object');
+    const propertyNode = valueNode.childForFieldName('property');
+    if (!objectNode || propertyNode?.text !== 'length') continue;
+
+    let derivedLength: number | undefined;
+    if (objectNode.type === 'identifier') {
+      derivedLength = sensitiveConstLengths.get(objectNode.text);
+    } else if (objectNode.type === 'string' && shouldRedactString(objectNode)) {
+      derivedLength = unescapedStringContent(objectNode)?.length;
+    }
+    if (derivedLength === undefined) continue;
+
+    const replacement = renameMap.registerExactReplacement(valueNode.text, String(derivedLength));
+    if (replacement !== undefined) sites.set(valueNode.id, replacement);
+  }
+  return sites;
+}
+
+function unwrapTopLevelLexicalDeclaration(node: Parser.SyntaxNode): Parser.SyntaxNode | null {
+  if (node.type === 'lexical_declaration') return node;
+  if (node.type !== 'export_statement') return null;
+  return node.namedChildren.find((child) => child.type === 'lexical_declaration') ?? null;
+}
+
+function unescapedStringContent(stringNode: Parser.SyntaxNode): string | null {
+  const content = stringNode.text.slice(1, -1);
+  return content.includes('\\') ? null : content;
 }
 
 function shouldRedactString(stringNode: Parser.SyntaxNode): boolean {

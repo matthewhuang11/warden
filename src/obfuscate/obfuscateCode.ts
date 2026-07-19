@@ -12,13 +12,14 @@ import { createAuditEvent, type AuditEvent } from '../audit/auditTypes.js';
 export interface ObfuscateResult {
   output: string;
   /** True if anything was changed at all — identifier renames, redacted
-   * comments, or redacted strings. Check the specific counts below to see
-   * which. */
+   * comments/strings, or folded derived constants. Check the specific
+   * counts below to see which. */
   renamed: boolean;
   renamedCount: number;
   dialect: Dialect | null;
   commentsRedacted: number;
   stringsRedacted: number;
+  derivedConstantsRedacted: number;
   auditEvents: AuditEvent[];
 }
 
@@ -47,8 +48,8 @@ function countLines(text: string): number {
   return count;
 }
 
-function collectIdentifierLikeNames(text: string): Set<string> {
-  return new Set(text.match(/[A-Za-z_$][\w$]*/g) ?? []);
+function collectForbiddenTokens(text: string): Set<string> {
+  return new Set(text.match(/[A-Za-z_$][\w$]*|\b\d+(?:\.\d+)?\b/g) ?? []);
 }
 
 // tree-sitter is error-tolerant: a bad parse doesn't throw, it embeds ERROR
@@ -101,6 +102,7 @@ export async function obfuscateCode(source: string, renameMap: RenameMap): Promi
       dialect: null,
       commentsRedacted: 0,
       stringsRedacted: 0,
+      derivedConstantsRedacted: 0,
       auditEvents: [],
     };
   }
@@ -116,12 +118,12 @@ export async function obfuscateCode(source: string, renameMap: RenameMap): Promi
       continue;
     }
 
-    // Comment/string redaction runs as its own independent pass, on its own
+    // Comment/string/derived-constant redaction runs as its own independent pass, on its own
     // parse of the original text — it never touches scopeAnalyzer/applyRenames
     // or the offsets they compute. Its (re-parseable) output is simply handed
     // to the existing identifier-renaming pipeline below as if it were the
     // original source.
-    renameMap.setForbiddenNames(collectIdentifierLikeNames(workingSource));
+    renameMap.setForbiddenNames(collectForbiddenTokens(workingSource));
     const redaction = redactSensitiveText(workingSource, tree.rootNode, renameMap, {
       redactComments: config.redactComments,
       redactStrings: config.redactStrings,
@@ -160,6 +162,7 @@ export async function obfuscateCode(source: string, renameMap: RenameMap): Promi
         dialect: null,
         commentsRedacted: 0,
         stringsRedacted: 0,
+        derivedConstantsRedacted: 0,
         auditEvents: [],
       };
     }
@@ -170,16 +173,22 @@ export async function obfuscateCode(source: string, renameMap: RenameMap): Promi
       renamedCount,
       commentsRedacted: redaction.commentsRedacted,
       stringsRedacted: redaction.stringsRedacted,
+      derivedConstantsRedacted: redaction.derivedConstantsRedacted,
       auditEvents,
       lineNumbered: lineNumbered !== null,
     });
     return {
       output: restored,
-      renamed: renamedCount > 0 || redaction.commentsRedacted > 0 || redaction.stringsRedacted > 0,
+      renamed:
+        renamedCount > 0 ||
+        redaction.commentsRedacted > 0 ||
+        redaction.stringsRedacted > 0 ||
+        redaction.derivedConstantsRedacted > 0,
       renamedCount,
       dialect,
       commentsRedacted: redaction.commentsRedacted,
       stringsRedacted: redaction.stringsRedacted,
+      derivedConstantsRedacted: redaction.derivedConstantsRedacted,
       auditEvents,
     };
   }
@@ -192,6 +201,7 @@ export async function obfuscateCode(source: string, renameMap: RenameMap): Promi
     dialect: null,
     commentsRedacted: 0,
     stringsRedacted: 0,
+    derivedConstantsRedacted: 0,
     auditEvents: [],
   };
 }

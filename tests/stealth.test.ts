@@ -61,9 +61,11 @@ describe('stealth aliases', () => {
     expect(result.output).not.toMatch(
       /CustomerRenewalRecord|RenewalOffer|CONFIDENTIAL_PRICING_MESSAGE|RENEWAL_PROCESSING_FEE|calculateRenewalOffer|isEligible/,
     );
-    expect(map.syntheticNames()).toHaveLength(7);
-    expect(map.syntheticNames().every((name) => /cache/i.test(name))).toBe(true);
+    const replacementNames = map.syntheticNames().filter((name) => /^[A-Za-z_$]/.test(name));
+    expect(replacementNames).toHaveLength(7);
+    expect(replacementNames.every((name) => /cache/i.test(name))).toBe(true);
     expect(result.output).toContain('interface CacheEntry');
+    expect(result.output).toContain('const cacheState = 61;');
     expect(rehydrateText(result.output, map)).toBe(source);
   });
 

@@ -160,6 +160,14 @@ either off):
   original if the model ever echoes the placeholder back, using the same
   rename map and reversal mechanism as identifiers. Template literals
   (`` `...` ``) are left alone entirely — see **Known limitations**.
+- **Derived string-length constants** are folded when a top-level `const`
+  initializer is exactly a qualifying sensitive string's `.length`, either
+  directly or through another top-level `const`. The upstream model sees
+  only the computed number, not the business phrase or the suspicious
+  derivation, while response text and tool edits still reverse to the exact
+  original expression. Warden skips this transformation for escaped
+  strings, nested scopes, or numeric values already present elsewhere in
+  the source, where an exact reverse substitution would be ambiguous.
 
 ## Known limitations
 

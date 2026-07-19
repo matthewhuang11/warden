@@ -17,6 +17,7 @@ export interface TransformStats {
   totalIdentifiersRenamed: number;
   commentsRedacted: number;
   stringsRedacted: number;
+  derivedConstantsRedacted: number;
   secretsRedacted: number;
   auditEvents: AuditEvent[];
   blocks: ObfuscatedBlockSummary[];
@@ -48,6 +49,7 @@ export async function transformRequestBody(
     totalIdentifiersRenamed: 0,
     commentsRedacted: 0,
     stringsRedacted: 0,
+    derivedConstantsRedacted: 0,
     secretsRedacted: 0,
     auditEvents: [],
     blocks: [],
@@ -168,6 +170,7 @@ async function obfuscateText(text: string, renameMap: RenameMap, stats: Transfor
     stats.totalIdentifiersRenamed += result.renamedCount;
     stats.commentsRedacted += result.commentsRedacted;
     stats.stringsRedacted += result.stringsRedacted;
+    stats.derivedConstantsRedacted += result.derivedConstantsRedacted;
     stats.auditEvents.push(...result.auditEvents);
     stats.blocks.push({ label, renamedCount: result.renamedCount });
   }

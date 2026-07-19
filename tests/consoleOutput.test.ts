@@ -26,13 +26,14 @@ describe('exchange markers', () => {
       totalIdentifiersRenamed: 7,
       commentsRedacted: 1,
       stringsRedacted: 1,
+      derivedConstantsRedacted: 2,
       secretsRedacted: 0,
       auditEvents: [],
       blocks: [],
     };
 
     expect(formatExchangeRequestMarker(42, stats)).toBe(
-      '[Warden exchange 42 request] intercepted; identifiers=7 comments=1 strings=1 secrets=0',
+      '[Warden exchange 42 request] intercepted; identifiers=7 comments=1 strings=1 derived=2 secrets=0',
     );
     expect(formatExchangeResponseMarker(42, 200, 125)).toBe(
       '[Warden exchange 42 response] returned; status=200 durationMs=125',
@@ -52,6 +53,7 @@ describe('TerminalStatsPanel', () => {
       totalIdentifiersRenamed: 3,
       commentsRedacted: 1,
       stringsRedacted: 2,
+      derivedConstantsRedacted: 1,
       secretsRedacted: 0,
       auditEvents: [],
       blocks: [],
@@ -62,14 +64,15 @@ describe('TerminalStatsPanel', () => {
       totalIdentifiersRenamed: 1,
       commentsRedacted: 0,
       stringsRedacted: 1,
+      derivedConstantsRedacted: 2,
       secretsRedacted: 2,
       auditEvents: [],
       blocks: [],
     });
 
-    expect(panel.current).toEqual({ identifiers: 4, comments: 1, strings: 3, secrets: 2 });
+    expect(panel.current).toEqual({ identifiers: 4, comments: 1, strings: 3, derived: 3, secrets: 2 });
     expect(writes).toHaveLength(2);
-    expect(writes[1]).toContain('identifiers: 4 | comments: 1 | strings: 3 | secrets: 2');
+    expect(writes[1]).toContain('identifiers: 4 | comments: 1 | strings: 3 | derived: 3 | secrets: 2');
     expect(writes[1]).toContain('\r\x1b[2K');
   });
 
@@ -83,6 +86,7 @@ describe('TerminalStatsPanel', () => {
       totalIdentifiersRenamed: 0,
       commentsRedacted: 0,
       stringsRedacted: 0,
+      derivedConstantsRedacted: 0,
       secretsRedacted: 0,
       auditEvents: [],
       blocks: [],

@@ -213,6 +213,7 @@ function emptyTransformStats(): TransformStats {
     totalIdentifiersRenamed: 0,
     commentsRedacted: 0,
     stringsRedacted: 0,
+    derivedConstantsRedacted: 0,
     secretsRedacted: 0,
     auditEvents: [],
     blocks: [],

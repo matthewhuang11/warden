@@ -224,6 +224,60 @@ describe('string literal redaction', () => {
   });
 });
 
+describe('derived constant redaction', () => {
+  it('folds a top-level constant derived from sensitive string length and round-trips exactly', async () => {
+    const source = [
+      "const CONFIDENTIAL_PRICING_MESSAGE = 'Internal enterprise renewal multiplier for strategic accounts';",
+      'const RENEWAL_PROCESSING_FEE = CONFIDENTIAL_PRICING_MESSAGE.length;',
+    ].join('\n');
+    const map = new RenameMap();
+    const result = await obfuscateCode(source, map);
+
+    expect(result.output).toBe("const var_1 = 'str_1';\nconst var_2 = 61;");
+    expect(result.output).not.toContain('.length');
+    expect(result.stringsRedacted).toBe(1);
+    expect(result.derivedConstantsRedacted).toBe(1);
+    expect(rehydrateText(result.output, map)).toBe(source);
+  });
+
+  it('folds a direct sensitive string length without exposing the string upstream', async () => {
+    const source = "const processingFee = 'Internal enterprise renewal multiplier for strategic accounts'.length;";
+    const map = new RenameMap();
+    const result = await obfuscateCode(source, map);
+
+    expect(result.output).toBe('const var_1 = 61;');
+    expect(result.output).not.toContain('Internal enterprise');
+    expect(result.derivedConstantsRedacted).toBe(1);
+    expect(rehydrateText(result.output, map)).toBe(source);
+  });
+
+  it('skips folding when the numeric replacement already appears in source', async () => {
+    const source = [
+      'const existingLimit = 61;',
+      "const pricingMessage = 'Internal enterprise renewal multiplier for strategic accounts';",
+      'const processingFee = pricingMessage.length;',
+    ].join('\n');
+    const result = await obfuscateCode(source, new RenameMap());
+
+    expect(result.output).toContain('const var_1 = 61;');
+    expect(result.output).toContain('const var_3 = var_2.length;');
+    expect(result.derivedConstantsRedacted).toBe(0);
+  });
+
+  it('leaves derived expressions alone when string redaction is disabled', async () => {
+    config.redactStrings = false;
+    const source = [
+      "const pricingMessage = 'Internal enterprise renewal multiplier for strategic accounts';",
+      'const processingFee = pricingMessage.length;',
+    ].join('\n');
+    const result = await obfuscateCode(source, new RenameMap());
+
+    expect(result.output).toContain("const var_1 = 'Internal enterprise renewal multiplier for strategic accounts';");
+    expect(result.output).toContain('const var_2 = var_1.length;');
+    expect(result.derivedConstantsRedacted).toBe(0);
+  });
+});
+
 describe('combined with identifier renaming', () => {
   it('redacts comments and qualifying strings alongside normal identifier renaming in one pass', async () => {
     const source = [
