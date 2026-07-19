@@ -27,6 +27,12 @@ export class RenameMap {
   private readonly toOriginal = new Map<string, string>();
   private readonly countersByKind = new Map<RenameKind, number>();
 
+  constructor(private readonly maxEntries = 10_000) {
+    if (!Number.isInteger(maxEntries) || maxEntries <= 0) {
+      throw new Error(`Invalid RenameMap maxEntries: ${maxEntries}`);
+    }
+  }
+
   /** Looks up an existing mapping without creating one. */
   get(originalName: string): string | undefined {
     return this.toSynthetic.get(originalName);
@@ -40,6 +46,15 @@ export class RenameMap {
     const next = (this.countersByKind.get(kind) ?? 0) + 1;
     this.countersByKind.set(kind, next);
     const synthetic = `${prefix}_${next.toString(36)}`;
+
+    if (this.toSynthetic.size >= this.maxEntries) {
+      const oldest = this.toSynthetic.keys().next().value as string | undefined;
+      if (oldest !== undefined) {
+        const oldestSynthetic = this.toSynthetic.get(oldest);
+        this.toSynthetic.delete(oldest);
+        if (oldestSynthetic !== undefined) this.toOriginal.delete(oldestSynthetic);
+      }
+    }
 
     this.toSynthetic.set(originalName, synthetic);
     this.toOriginal.set(synthetic, originalName);

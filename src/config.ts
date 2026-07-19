@@ -5,6 +5,7 @@ export interface WardenConfig {
   upstreamHeadersTimeoutMs: number;
   maxRequestBodyBytes: number;
   maxBufferedResponseBytes: number;
+  maxSessionMappings: number;
   redactComments: boolean;
   redactStrings: boolean;
 }
@@ -44,6 +45,11 @@ function readConfig(env: NodeJS.ProcessEnv): WardenConfig {
     throw new Error(`Invalid WARDEN_MAX_BUFFERED_RESPONSE_BYTES: ${env.WARDEN_MAX_BUFFERED_RESPONSE_BYTES}`);
   }
 
+  const maxSessionMappings = Number.parseInt(env.WARDEN_MAX_SESSION_MAPPINGS ?? '10000', 10);
+  if (!Number.isInteger(maxSessionMappings) || maxSessionMappings <= 0) {
+    throw new Error(`Invalid WARDEN_MAX_SESSION_MAPPINGS: ${env.WARDEN_MAX_SESSION_MAPPINGS}`);
+  }
+
   return {
     port,
     upstreamBaseUrl,
@@ -51,6 +57,7 @@ function readConfig(env: NodeJS.ProcessEnv): WardenConfig {
     upstreamHeadersTimeoutMs,
     maxRequestBodyBytes,
     maxBufferedResponseBytes,
+    maxSessionMappings,
     redactComments: env.WARDEN_REDACT_COMMENTS !== '0',
     redactStrings: env.WARDEN_REDACT_STRINGS !== '0',
   };
