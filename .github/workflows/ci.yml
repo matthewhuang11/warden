@@ -43,6 +43,9 @@ jobs:
       - name: Typecheck and build
         run: npm run build
 
+      - name: Verify packed installation
+        run: npm run verify:package
+
   dashboard:
     runs-on: ubuntu-latest
     timeout-minutes: 10
