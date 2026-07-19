@@ -37,7 +37,8 @@ describe('EncryptedAuditLog', () => {
       decipher.update(Buffer.from(record.ciphertext, 'base64')),
       decipher.final(),
     ]).toString('utf8');
-    expect(JSON.parse(decrypted) as AuditEvent).toEqual(event);
+    expect(JSON.parse(decrypted) as AuditEvent).toMatchObject(event);
+    expect(JSON.parse(decrypted).sessionId).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it('serializes concurrent appends through one queue', async () => {

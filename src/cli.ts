@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { runSetupWizard } from './setupWizard.js';
+import { EncryptedAuditLog } from './audit/auditLog.js';
+import { renderReport, writeReport } from './report/report.js';
 
 const HELP = `
 warden-proxy — local proxy that obfuscates local identifiers before they
@@ -9,6 +11,7 @@ Usage:
   warden-proxy              Start the proxy (foreground)
   warden-proxy setup        Configure Claude Code to use it (writes to
                              ~/.claude/settings.json, with confirmation)
+  warden-proxy report       Generate and open a local HTML protection report
   warden-proxy --help       Show this help
 
 Options for "setup":
@@ -32,6 +35,16 @@ async function main(): Promise<void> {
     const assumeYes = rest.includes('--yes') || rest.includes('-y');
     await runSetupWizard({ assumeYes });
     console.log('Run `warden-proxy` (no arguments) to start the proxy.');
+    return;
+  }
+
+  if (command === 'report') {
+    const outputIndex = rest.findIndex((value) => value === '--output');
+    const outputPath = outputIndex >= 0 && rest[outputIndex + 1] ? rest[outputIndex + 1] : `${process.cwd()}/warden-report.html`;
+    const auditLog = new EncryptedAuditLog({ filePath: `${process.cwd()}/.warden/audit.log.enc` });
+    const events = await auditLog.read();
+    await writeReport(renderReport(events), { outputPath });
+    console.log(`Warden report written to ${outputPath}`);
     return;
   }
 

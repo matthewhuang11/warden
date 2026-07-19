@@ -1,5 +1,5 @@
-import { randomBytes, createCipheriv } from 'node:crypto';
-import { appendFile, chmod, mkdir } from 'node:fs/promises';
+import { randomBytes, createCipheriv, createDecipheriv, randomUUID } from 'node:crypto';
+import { appendFile, chmod, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AuditEvent } from './auditTypes.js';
 import { MacKeychainStore, type SecureKeyStore } from './keyStore.js';
@@ -11,6 +11,8 @@ interface EncryptedAuditRecord {
   ciphertext: string;
 }
 
+export type StoredAuditEvent = AuditEvent & { sessionId: string };
+
 export interface AuditLogOptions {
   filePath: string;
   keyStore?: SecureKeyStore;
@@ -19,6 +21,7 @@ export interface AuditLogOptions {
 /** Append-only encrypted local audit log. Plaintext events exist only in memory. */
 export class EncryptedAuditLog {
   private readonly keyStore: SecureKeyStore;
+  private readonly sessionId = randomUUID();
   private writeQueue: Promise<void> = Promise.resolve();
   private keyPromise: Promise<Buffer> | undefined;
 
@@ -30,6 +33,24 @@ export class EncryptedAuditLog {
     if (events.length === 0) return Promise.resolve();
     this.writeQueue = this.writeQueue.then(() => this.append(events));
     return this.writeQueue;
+  }
+
+  async read(): Promise<StoredAuditEvent[]> {
+    let raw: string;
+    try {
+      raw = await readFile(this.options.filePath, 'utf8');
+    } catch (error) {
+      if (isMissingFile(error)) return [];
+      throw error;
+    }
+    if (raw.trim().length === 0) return [];
+
+    const key = await this.getKey();
+    return raw
+      .trim()
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .map((line) => this.decrypt(JSON.parse(line) as EncryptedAuditRecord, key));
   }
 
   private async append(events: AuditEvent[]): Promise<void> {
@@ -51,7 +72,8 @@ export class EncryptedAuditLog {
   private encrypt(event: AuditEvent, key: Buffer): EncryptedAuditRecord {
     const iv = randomBytes(12);
     const cipher = createCipheriv('aes-256-gcm', key, iv);
-    const ciphertext = Buffer.concat([cipher.update(JSON.stringify(event), 'utf8'), cipher.final()]);
+    const storedEvent: StoredAuditEvent = { ...event, sessionId: this.sessionId };
+    const ciphertext = Buffer.concat([cipher.update(JSON.stringify(storedEvent), 'utf8'), cipher.final()]);
     return {
       version: 1,
       iv: iv.toString('base64'),
@@ -59,4 +81,19 @@ export class EncryptedAuditLog {
       ciphertext: ciphertext.toString('base64'),
     };
   }
+
+  private decrypt(record: EncryptedAuditRecord, key: Buffer): StoredAuditEvent {
+    if (record.version !== 1) throw new Error(`Unsupported audit record version: ${record.version}`);
+    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(record.iv, 'base64'));
+    decipher.setAuthTag(Buffer.from(record.authTag, 'base64'));
+    const plaintext = Buffer.concat([
+      decipher.update(Buffer.from(record.ciphertext, 'base64')),
+      decipher.final(),
+    ]).toString('utf8');
+    return JSON.parse(plaintext) as StoredAuditEvent;
+  }
+}
+
+function isMissingFile(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
 }
