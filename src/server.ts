@@ -109,7 +109,24 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
   const start = Date.now();
   const method = req.method ?? 'GET';
   const path = req.url ?? '/';
-  const target = new URL(path, config.upstreamBaseUrl);
+
+  // Warden is a forward proxy for one configured origin, not an open proxy.
+  // Reject absolute-form and protocol-relative request targets before URL
+  // resolution so a client cannot redirect a request to another host.
+  if (/^(?:https?:)?\/\//i.test(path)) {
+    res.writeHead(400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'invalid_request_target' }));
+    return;
+  }
+
+  let target: URL;
+  try {
+    target = new URL(path, config.upstreamBaseUrl);
+  } catch {
+    res.writeHead(400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'invalid_request_target' }));
+    return;
+  }
 
   logger.info('request.received', { method, path });
 

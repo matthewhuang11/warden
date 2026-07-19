@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { createServer, type Server } from 'node:http';
+import { createServer, request as httpRequest, type Server } from 'node:http';
 import { createProxyServer } from '../src/server.js';
 import { config } from '../src/config.js';
 
@@ -123,6 +123,42 @@ describe('malformed and unexpected request bodies', () => {
     });
 
     expect(res.status).toBe(200);
+  });
+});
+
+describe('upstream target isolation', () => {
+  it('rejects absolute-form request targets instead of forwarding them elsewhere', async () => {
+    let upstreamRequests = 0;
+    const { proxyUrl } = await startProxyWithUpstream((_req, res) => {
+      upstreamRequests += 1;
+      res.writeHead(200);
+      res.end();
+    });
+
+    const res = await fetch(`${proxyUrl}/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ messages: [] }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(upstreamRequests).toBe(1);
+
+    const absoluteTargetStatus = await new Promise<number>((resolve, reject) => {
+      const request = httpRequest(
+        proxyUrl,
+        { method: 'GET', path: 'http://169.254.169.254/latest/meta-data/' },
+        (response) => {
+          response.resume();
+          resolve(response.statusCode ?? 0);
+        },
+      );
+      request.on('error', reject);
+      request.end();
+    });
+
+    expect(absoluteTargetStatus).toBe(400);
+    expect(upstreamRequests).toBe(1);
   });
 });
 

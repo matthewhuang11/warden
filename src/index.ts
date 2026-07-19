@@ -21,7 +21,7 @@ server.on('error', (err: NodeJS.ErrnoException) => {
   process.exit(1);
 });
 
-server.listen(config.port, () => {
+server.listen(config.port, '127.0.0.1', () => {
   logger.info('server.listening', {
     port: config.port,
     upstream: config.upstreamBaseUrl,
