@@ -72,7 +72,7 @@ describe('stealth harness guardrails', () => {
 
   it('rejects held-out fixtures and runs above the agreed cap', () => {
     expect(() =>
-      readHarnessConfig(['--fixture', 'examples/fixtures/held-out/fintech/treasury-sweep.ts'], cappedEnv),
+      readHarnessConfig(['--fixture', 'examples/fixtures/held-out/fintech/invoice-advance.ts'], cappedEnv),
     ).toThrow(/Held-out fixture/);
     expect(() => readHarnessConfig(['--runs', '4'], cappedEnv)).toThrow(/exceeds/);
   });
@@ -96,13 +96,13 @@ describe('stealth harness guardrails', () => {
   });
 
   it('requires at least three trials per fixture and one cap covering the full tuning pass', () => {
-    const passEnv = { ...cappedEnv, WARDEN_STEALTH_MAX_RUNS: '12', WARDEN_STEALTH_MAX_BUDGET_USD: '6' };
+    const passEnv = { ...cappedEnv, WARDEN_STEALTH_MAX_RUNS: '15', WARDEN_STEALTH_MAX_BUDGET_USD: '7.5' };
     expect(() => readHarnessConfig(['--all-tuning', '--runs', '2'], passEnv)).toThrow(/at least 3/);
 
     const config = readHarnessConfig(['--all-tuning'], passEnv);
-    expect(config.fixturePaths).toHaveLength(4);
+    expect(config.fixturePaths).toHaveLength(5);
     expect(config.trialsPerFixture).toBe(3);
-    expect(config.fixturePaths.length * config.trialsPerFixture).toBe(12);
+    expect(config.fixturePaths.length * config.trialsPerFixture).toBe(15);
   });
 
   it('routes a bare read-only reviewer through Warden with its share of the total budget', () => {

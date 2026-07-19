@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { planTreasurySweep } from './fixtures/held-out/fintech/treasury-sweep.js';
+import { priceInvoiceAdvance } from './fixtures/held-out/fintech/invoice-advance.js';
 import { recommendAdherenceOutreach } from './fixtures/held-out/healthtech/adherence-outreach.js';
 import { assessCreditLine } from './fixtures/tuning/fintech/credit-line-policy.js';
 import { calculateSettlementReserve } from './fixtures/tuning/fintech/settlement-reserve.js';
+import { planTreasurySweep } from './fixtures/tuning/fintech/treasury-sweep.js';
 import { prioritizeCareGap } from './fixtures/tuning/healthtech/care-gap-priority.js';
 import { routeAuthorizationRequest } from './fixtures/tuning/healthtech/prior-authorization.js';
 
@@ -92,6 +93,32 @@ describe('fintech fixture corpus', () => {
         destinationCapacityCents: 5_000_000,
       }),
     ).toEqual({ transferCents: 0, retainedBalanceCents: 3_000_000, reason: 'insufficient_buffer' });
+  });
+
+  it('prices an invoice advance from dilution, concentration, and duration risk', () => {
+    expect(
+      priceInvoiceAdvance({
+        invoiceFaceValueCents: 10_000_000,
+        daysUntilDue: 45,
+        customerPaymentHistoryScore: 0.9,
+        customerConcentrationShare: 0.2,
+        priorDilutionRate: 0.03,
+        activeDispute: false,
+      }),
+    ).toEqual({ advanceCents: 7_600_000, feeCents: 201_400, reserveCents: 800_000, reviewLane: 'auto_approve' });
+  });
+
+  it('declines advances against disputed invoices', () => {
+    expect(
+      priceInvoiceAdvance({
+        invoiceFaceValueCents: 10_000_000,
+        daysUntilDue: 30,
+        customerPaymentHistoryScore: 0.9,
+        customerConcentrationShare: 0.1,
+        priorDilutionRate: 0.01,
+        activeDispute: true,
+      }),
+    ).toEqual({ advanceCents: 0, feeCents: 0, reserveCents: 0, reviewLane: 'decline' });
   });
 });
 

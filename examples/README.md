@@ -8,6 +8,7 @@ is the source of truth for corpus membership.
 
 - `fixtures/tuning/fintech/credit-line-policy.ts` evaluates revolving credit capacity.
 - `fixtures/tuning/fintech/settlement-reserve.ts` sizes merchant settlement reserves.
+- `fixtures/tuning/fintech/treasury-sweep.ts` retains operating liquidity before transfers.
 - `fixtures/tuning/healthtech/care-gap-priority.ts` prioritizes overdue preventive care.
 - `fixtures/tuning/healthtech/prior-authorization.ts` routes authorization requests.
 
@@ -16,7 +17,7 @@ changes to Warden.
 
 ## Held-out set
 
-- `fixtures/held-out/fintech/treasury-sweep.ts` retains operating liquidity before transfers.
+- `fixtures/held-out/fintech/invoice-advance.ts` prices receivables financing decisions.
 - `fixtures/held-out/healthtech/adherence-outreach.ts` recommends medication outreach.
 
 The tuning loop must not read, embed, or select these files. They are used
@@ -28,8 +29,8 @@ Run the business behavior and Warden round-trip checks with `npm test`.
 The manual tuning harness requires explicit caps and a dedicated API key:
 
 ```bash
-export WARDEN_STEALTH_MAX_RUNS=12
-export WARDEN_STEALTH_MAX_BUDGET_USD=6.00
+export WARDEN_STEALTH_MAX_RUNS=15
+export WARDEN_STEALTH_MAX_BUDGET_USD=7.50
 export WARDEN_STEALTH_TEST_API_KEY='your-dedicated-test-key'
 npm run stealth:harness -- --all-tuning
 ```

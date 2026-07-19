@@ -2,11 +2,12 @@
   "tuning": [
     "examples/fixtures/tuning/fintech/credit-line-policy.ts",
     "examples/fixtures/tuning/fintech/settlement-reserve.ts",
+    "examples/fixtures/tuning/fintech/treasury-sweep.ts",
     "examples/fixtures/tuning/healthtech/care-gap-priority.ts",
     "examples/fixtures/tuning/healthtech/prior-authorization.ts"
   ],
   "heldOut": [
-    "examples/fixtures/held-out/fintech/treasury-sweep.ts",
+    "examples/fixtures/held-out/fintech/invoice-advance.ts",
     "examples/fixtures/held-out/healthtech/adherence-outreach.ts"
   ]
 }
