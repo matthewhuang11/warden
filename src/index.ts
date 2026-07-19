@@ -1,7 +1,13 @@
 import { config } from './config.js';
 import { logger } from './log.js';
 import { createProxyServer } from './server.js';
-import { printBanner, printPortInUseError, printStartupError, printUpstreamUnreachableWarning } from './consoleOutput.js';
+import {
+  formatUpstreamUrlForDisplay,
+  printBanner,
+  printPortInUseError,
+  printStartupError,
+  printUpstreamUnreachableWarning,
+} from './consoleOutput.js';
 
 const UPSTREAM_REACHABILITY_CHECK_TIMEOUT_MS = 5000;
 
@@ -24,7 +30,7 @@ server.on('error', (err: NodeJS.ErrnoException) => {
 server.listen(config.port, '127.0.0.1', () => {
   logger.info('server.listening', {
     port: config.port,
-    upstream: config.upstreamBaseUrl,
+    upstream: formatUpstreamUrlForDisplay(config.upstreamBaseUrl),
     obfuscationEnabled: config.obfuscationEnabled,
   });
   printBanner(config.port, config.upstreamBaseUrl, config.obfuscationEnabled);
@@ -46,7 +52,10 @@ async function checkUpstreamReachable(): Promise<void> {
       signal: AbortSignal.timeout(UPSTREAM_REACHABILITY_CHECK_TIMEOUT_MS),
     });
   } catch (err) {
-    logger.warn('server.upstream_unreachable_at_startup', { upstream: config.upstreamBaseUrl, error: String(err) });
+    logger.warn('server.upstream_unreachable_at_startup', {
+      upstream: formatUpstreamUrlForDisplay(config.upstreamBaseUrl),
+      errorType: err instanceof Error ? err.name : typeof err,
+    });
     printUpstreamUnreachableWarning(config.upstreamBaseUrl, String(err));
   }
 }
