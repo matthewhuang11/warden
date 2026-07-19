@@ -72,7 +72,7 @@ function errorType(err: unknown): string {
 }
 
 export function createProxyServer(): Server {
-  return createServer((req, res) => {
+  const server = createServer((req, res) => {
     void handleRequest(req, res).catch((err) => {
       logger.error('request.unhandled_error', { errorType: errorType(err) });
       if (!res.headersSent) {
@@ -81,6 +81,10 @@ export function createProxyServer(): Server {
       res.end(JSON.stringify({ error: 'proxy_error', message: 'Unhandled proxy failure' }));
     });
   });
+  server.headersTimeout = config.clientHeadersTimeoutMs;
+  server.requestTimeout = config.requestTimeoutMs;
+  server.keepAliveTimeout = 5000;
+  return server;
 }
 
 async function readRequestBody(req: IncomingMessage): Promise<Buffer> {

@@ -56,6 +56,8 @@ To go back to talking to Anthropic directly, `unset ANTHROPIC_BASE_URL`
 | `WARDEN_UPSTREAM_BASE_URL` | `https://api.anthropic.com` | Where requests are forwarded |
 | `WARDEN_OBFUSCATION_DISABLED` | unset | Set to `1` to run as a pure passthrough (no obfuscation) |
 | `WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS` | `30000` | How long to wait for the upstream to start responding before failing the request with a `504` |
+| `WARDEN_CLIENT_HEADERS_TIMEOUT_MS` | `15000` | Maximum time allowed to receive inbound request headers |
+| `WARDEN_REQUEST_TIMEOUT_MS` | `120000` | Maximum time allowed to receive a complete inbound request |
 | `WARDEN_MAX_REQUEST_BODY_BYTES` | `10485760` | Maximum request body size accepted by the proxy; larger requests receive a `413` before forwarding |
 | `WARDEN_MAX_BUFFERED_RESPONSE_BYTES` | `10485760` | Maximum JSON response size buffered for rehydration; larger responses receive a `502` |
 | `WARDEN_MAX_SSE_RESPONSE_BYTES` | `52428800` | Maximum total rehydrated SSE response size; larger streams are terminated |

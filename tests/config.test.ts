@@ -7,6 +7,8 @@ describe('readConfig', () => {
 
     expect(config.port).toBe(8787);
     expect(config.upstreamBaseUrl).toBe('https://api.anthropic.com');
+    expect(config.clientHeadersTimeoutMs).toBe(15000);
+    expect(config.requestTimeoutMs).toBe(120000);
     expect(config.maxRequestBodyBytes).toBe(10 * 1024 * 1024);
     expect(config.maxBufferedResponseBytes).toBe(10 * 1024 * 1024);
     expect(config.maxSessionMappings).toBe(10000);
@@ -17,6 +19,8 @@ describe('readConfig', () => {
     ['WARDEN_PORT', '65536'],
     ['WARDEN_PORT', '8787oops'],
     ['WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS', '1.5'],
+    ['WARDEN_CLIENT_HEADERS_TIMEOUT_MS', 'nope'],
+    ['WARDEN_REQUEST_TIMEOUT_MS', '0'],
     ['WARDEN_MAX_REQUEST_BODY_BYTES', '-1'],
     ['WARDEN_MAX_BUFFERED_RESPONSE_BYTES', 'nope'],
     ['WARDEN_MAX_SESSION_MAPPINGS', '0'],
@@ -38,6 +42,8 @@ describe('readConfig', () => {
       WARDEN_PORT: '9000',
       WARDEN_UPSTREAM_BASE_URL: 'http://127.0.0.1:4321',
       WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS: '500',
+      WARDEN_CLIENT_HEADERS_TIMEOUT_MS: '1000',
+      WARDEN_REQUEST_TIMEOUT_MS: '5000',
       WARDEN_MAX_REQUEST_BODY_BYTES: '1024',
       WARDEN_MAX_BUFFERED_RESPONSE_BYTES: '2048',
       WARDEN_MAX_SESSION_MAPPINGS: '3',
@@ -47,6 +53,8 @@ describe('readConfig', () => {
       port: 9000,
       upstreamBaseUrl: 'http://127.0.0.1:4321',
       upstreamHeadersTimeoutMs: 500,
+      clientHeadersTimeoutMs: 1000,
+      requestTimeoutMs: 5000,
       maxRequestBodyBytes: 1024,
       maxBufferedResponseBytes: 2048,
       maxSessionMappings: 3,

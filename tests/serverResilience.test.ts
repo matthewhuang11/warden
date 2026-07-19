@@ -132,6 +132,15 @@ describe('malformed and unexpected request bodies', () => {
   });
 });
 
+describe('client timeout configuration', () => {
+  it('applies explicit inbound timeout settings to each proxy server', () => {
+    const proxy = createProxyServer();
+    expect(proxy.headersTimeout).toBe(15000);
+    expect(proxy.requestTimeout).toBe(120000);
+    expect(proxy.keepAliveTimeout).toBe(5000);
+  });
+});
+
 describe('upstream target isolation', () => {
   it('rejects absolute-form request targets instead of forwarding them elsewhere', async () => {
     let upstreamRequests = 0;
