@@ -44,6 +44,18 @@ class SseRehydrator {
 
   constructor(private readonly renameMap: RenameMap) {}
 
+  private safeTextLength(text: string, desiredLength: number): number {
+    let safeLength = desiredLength;
+    const partialWord = text.slice(0, safeLength).match(/[A-Za-z_$][\w$]*$/)?.[0];
+    if (
+      partialWord &&
+      this.renameMap.syntheticNames().some((synthetic) => synthetic.startsWith(partialWord) && synthetic.length > partialWord.length)
+    ) {
+      safeLength -= partialWord.length;
+    }
+    return safeLength;
+  }
+
   processFrame(frame: string): string {
     const lines = frame.split('\n');
     const dataLines = lines.filter((l) => l.startsWith('data:'));
@@ -82,8 +94,9 @@ class SseRehydrator {
         this.textPending.set(index, combined);
         return '';
       }
-      const safeLength = combined.length - TAIL_HOLDBACK;
+      const safeLength = this.safeTextLength(combined, combined.length - TAIL_HOLDBACK);
       this.textPending.set(index, combined.slice(safeLength));
+      if (safeLength === 0) return '';
       const emitted = rehydrateText(combined.slice(0, safeLength), this.renameMap);
       return buildDeltaEventText({ index, kind: 'text_delta', text: emitted });
     }
