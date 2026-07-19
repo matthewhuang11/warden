@@ -25,11 +25,17 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
+      - name: Verify lockfile stability
+        run: git diff --exit-code -- package-lock.json
+
       - name: Audit dependencies
         run: npm audit --audit-level=high
 
       - name: Run tests
         run: npm test
+
+      - name: Run HTTP resilience integration tests
+        run: npx vitest run tests/serverResilience.test.ts
 
       - name: Typecheck and build
         run: npm run build
