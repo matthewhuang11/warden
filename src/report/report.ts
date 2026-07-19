@@ -12,6 +12,38 @@ export interface ReportOptions {
   openBrowser?: boolean;
 }
 
+export interface ReportSummary {
+  identifiers: number;
+  comments: number;
+  strings: number;
+  secrets: number;
+  sessions: number;
+  start: string;
+  end: string;
+}
+
+export function summarizeEvents(events: StoredAuditEvent[]): ReportSummary {
+  const totals = Object.fromEntries(CATEGORY_ORDER.map((category) => [category, 0])) as Record<Category, number>;
+  const sessions = new Set<string>();
+  const timestamps = events.map((event) => event.timestamp).sort();
+
+  for (const event of events) {
+    if (!(event.category in totals)) continue;
+    totals[event.category] += 1;
+    sessions.add(event.sessionId);
+  }
+
+  return {
+    identifiers: totals.identifier,
+    comments: totals.comment,
+    strings: totals.string,
+    secrets: totals.secret,
+    sessions: sessions.size,
+    start: timestamps[0]?.slice(0, 10) ?? 'no data',
+    end: timestamps.at(-1)?.slice(0, 10) ?? 'no data',
+  };
+}
+
 export function renderReport(events: StoredAuditEvent[]): string {
   const totals = Object.fromEntries(CATEGORY_ORDER.map((category) => [category, 0])) as Record<Category, number>;
   const timeline = new Map<string, Map<Category, number>>();
@@ -49,6 +81,20 @@ export function renderReport(events: StoredAuditEvent[]): string {
 <h2>Timeline</h2><table><thead><tr><th>Date</th>${CATEGORY_ORDER.map((category) => `<th>${capitalize(category)}</th>`).join('')}</tr></thead><tbody>${timelineRows || '<tr><td colspan="5">No audit events recorded.</td></tr>'}</tbody></table>
 </body></html>
 `;
+}
+
+export function formatStats(summary: ReportSummary): string {
+  return [
+    'Warden protection stats',
+    `Identifiers: ${summary.identifiers}`,
+    `Comments:    ${summary.comments}`,
+    `Strings:     ${summary.strings}`,
+    `Secrets:     ${summary.secrets}`,
+    `Sessions:    ${summary.sessions}`,
+    `Date range:  ${summary.start} to ${summary.end}`,
+    '',
+    `${summary.identifiers} identifiers, ${summary.comments} comments, and ${summary.strings} strings transformed across ${summary.sessions} sessions.`,
+  ].join('\n');
 }
 
 export async function writeReport(html: string, options: ReportOptions): Promise<void> {

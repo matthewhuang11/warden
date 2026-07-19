@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { EncryptedAuditLog } from '../src/audit/auditLog.js';
 import { createAuditEvent } from '../src/audit/auditTypes.js';
 import type { SecureKeyStore } from '../src/audit/keyStore.js';
-import { renderReport, writeReport } from '../src/report/report.js';
+import { formatStats, renderReport, summarizeEvents, writeReport } from '../src/report/report.js';
 
 const directories: string[] = [];
 
@@ -14,6 +14,16 @@ afterEach(async () => {
 });
 
 describe('local protection report', () => {
+  it('shares category totals with the terminal stats view', () => {
+    const summary = summarizeEvents([
+      { ...createAuditEvent('identifier', 'a'), sessionId: 'session-a' },
+      { ...createAuditEvent('comment', 'b'), sessionId: 'session-a' },
+    ]);
+
+    expect(summary).toMatchObject({ identifiers: 1, comments: 1, strings: 0, secrets: 0, sessions: 1 });
+    expect(formatStats(summary)).toContain('1 identifiers, 1 comments, and 0 strings transformed across 1 sessions.');
+  });
+
   it('renders category totals, timeline, and plain-language summary', () => {
     const html = renderReport([
       { ...createAuditEvent('identifier', 'a'), sessionId: 'session-a' },
