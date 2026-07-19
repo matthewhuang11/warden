@@ -31,4 +31,16 @@ describe('RenameMap bounds', () => {
     expect(map.get('idleSecret')).toBeUndefined();
     expect(map.reverseLookup(synthetic)).toBeUndefined();
   });
+
+  it('refreshes an existing mapping when accessed through getOrCreate', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const map = new RenameMap(10, 1000);
+    const synthetic = map.getOrCreate('refreshSecret', 'variable');
+
+    vi.advanceTimersByTime(900);
+    expect(map.getOrCreate('refreshSecret', 'variable')).toBe(synthetic);
+    vi.advanceTimersByTime(900);
+    expect(map.reverseLookup(synthetic)).toBe('refreshSecret');
+  });
 });

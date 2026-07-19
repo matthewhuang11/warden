@@ -8,4 +8,4 @@ import { config } from './config.js';
 // on every turn — the same original name must always obfuscate to the
 // same synthetic name across turns for the model's context to stay
 // coherent, and for our own SSE rehydration to reverse it correctly.
-export const sessionRenameMap = new RenameMap(config.maxSessionMappings, config.sessionMappingTtlMs);
+export const sessionRenameMap = new RenameMap(config.maxSessionMappings, config.sessionMappingTtlMs, 'stealth');

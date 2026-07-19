@@ -400,13 +400,13 @@ describe('concurrent requests and sessionRenameMap consistency', () => {
     expect(receivedBodies).toHaveLength(concurrency);
     const synthNames = new Set(
       receivedBodies.map((body) => {
-        const match = body.match(/function (\w+_\w+)\(x\)/);
+        const match = body.match(/function ([A-Za-z_$][\w$]*)\(x\)/);
         return match?.[1];
       }),
     );
 
     expect(synthNames.size).toBe(1);
-    expect([...synthNames][0]).toMatch(/^func_/);
+    expect([...synthNames][0]).toMatch(/^[A-Za-z_$][\w$]*$/);
     // None of the concurrent requests should have leaked the real name.
     for (const body of receivedBodies) {
       expect(body).not.toContain('handleConcurrentThing');

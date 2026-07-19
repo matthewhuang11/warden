@@ -45,6 +45,10 @@ function countLines(text: string): number {
   return count;
 }
 
+function collectIdentifierLikeNames(text: string): Set<string> {
+  return new Set(text.match(/[A-Za-z_$][\w$]*/g) ?? []);
+}
+
 // tree-sitter is error-tolerant: a bad parse doesn't throw, it embeds ERROR
 // or MISSING nodes in the tree. Walk the tree to find the first one so we
 // can see what the parser actually choked on.
@@ -107,6 +111,7 @@ export async function obfuscateCode(source: string, renameMap: RenameMap): Promi
     // or the offsets they compute. Its (re-parseable) output is simply handed
     // to the existing identifier-renaming pipeline below as if it were the
     // original source.
+    renameMap.setForbiddenNames(collectIdentifierLikeNames(workingSource));
     const redaction = redactSensitiveText(workingSource, tree.rootNode, renameMap, {
       redactComments: config.redactComments,
       redactStrings: config.redactStrings,
@@ -130,6 +135,7 @@ export async function obfuscateCode(source: string, renameMap: RenameMap): Promi
 
     const analysis = analyzeScopes(renameTree.rootNode, renameMap);
     const { output, renamedCount } = applyRenames(renameSource, analysis, renameMap);
+    renameMap.clearForbiddenNames();
     const restored = lineNumbered ? restoreLineNumberPrefixes(output, lineNumbered.prefixes) : output;
     if (restored === null) {
       logger.warn('obfuscate.line_number_restore_failed', { sourceLength: source.length });

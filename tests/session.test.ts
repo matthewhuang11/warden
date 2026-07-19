@@ -36,7 +36,7 @@ describe('sessionRenameMap persistence across requests', () => {
     const { body: firstBody } = await transformRequestBody(firstRequest, sessionRenameMap);
     const firstText = textOf(firstBody);
 
-    const declMatch = firstText.match(/function (func_\w+)\(order\)/);
+    const declMatch = firstText.match(/function ([A-Za-z_$][\w$]*)\(order\)/);
     expect(declMatch).not.toBeNull();
     const syntheticName = declMatch![1];
     expect(firstText).not.toContain('processOrder');
@@ -66,7 +66,7 @@ describe('sessionRenameMap persistence across requests', () => {
     const { body: firstBody } = await transformRequestBody(firstRequest, sessionRenameMap);
     const firstText = textOf(firstBody);
 
-    const declMatch = firstText.match(/const (var_\w+) = loadConfig\(\);/);
+    const declMatch = firstText.match(/const ([A-Za-z_$][\w$]*) = loadConfig\(\);/);
     expect(declMatch).not.toBeNull();
     const syntheticName = declMatch![1];
     expect(firstText).not.toContain('cachedConfig');

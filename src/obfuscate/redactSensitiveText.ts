@@ -56,7 +56,7 @@ export function redactSensitiveText(
         // commentsRedacted (pre-increment) varies the phrase picked across
         // successive comments even when they're the same length, so the
         // same source doesn't produce the same placeholder at every site.
-        replacement: buildCommentPlaceholder(node.text, commentsRedacted),
+        replacement: buildCommentPlaceholder(node.text, commentsRedacted, renameMap.isStealth),
       });
       commentsRedacted += 1;
       return;
@@ -150,20 +150,36 @@ function isStructuralContext(stringNode: Parser.SyntaxNode): boolean {
 // a five-word comment collapsing to a two-word placeholder. Never derived
 // from the real comment's words, only its length, so nothing about the
 // original content leaks through even indirectly.
-const SHORT_PHRASES = ['internal only', 'see below', 'helper logic', 'not user-facing', 'todo: revisit'];
-const MEDIUM_PHRASES = [
+const COMPACT_SHORT_PHRASES = ['internal only', 'see below', 'helper logic', 'not user-facing', 'todo: revisit'];
+const COMPACT_MEDIUM_PHRASES = [
   'see implementation below',
   'internal logic, not user-facing',
   'handles edge cases internally',
   'utility function, see usage',
   'kept for backwards compatibility',
 ];
-const LONG_PHRASES = [
+const COMPACT_LONG_PHRASES = [
   'additional internal implementation details are handled here',
   'see the internal implementation for further context',
   'this section contains logic not relevant to the current task',
   'refactor candidate, revisit when touching this area next',
   'internal helper retained for legacy callers, do not remove',
+];
+
+const STEALTH_SHORT_PHRASES = ['normalizes input', 'keeps this local', 'handles this case', 'sets the value', 'shared path'];
+const STEALTH_MEDIUM_PHRASES = [
+  'keeps this path consistent',
+  'normalizes the value before use',
+  'shared behavior for this branch',
+  'keeps related setup together',
+  'handles the surrounding state',
+];
+const STEALTH_LONG_PHRASES = [
+  'the remaining details are handled in this section',
+  'this path keeps the surrounding behavior consistent',
+  'additional setup is kept close to the call site',
+  'related processing stays contained in this section',
+  'the surrounding flow is kept together here',
 ];
 
 const SHORT_MAX_LENGTH = 20;
@@ -198,24 +214,24 @@ function simpleFingerprint(text: string): number {
  * pickPhrase/simpleFingerprint) — never by the original text's actual
  * words — so repeated redactions don't all produce the identical,
  * obviously-synthetic string. */
-function buildCommentPlaceholder(originalText: string, index: number): string {
+function buildCommentPlaceholder(originalText: string, index: number, stealth: boolean): string {
   const seed = simpleFingerprint(originalText) + index;
 
   if (originalText.startsWith('//')) {
     const contentLength = originalText.length - 2;
-    return `// ${pickPhrase(phrasePoolFor(contentLength), seed)}`;
+    return `// ${pickPhrase(phrasePoolFor(contentLength, stealth), seed)}`;
   }
 
   const newlineCount = (originalText.match(/\n/g) ?? []).length;
   const contentLength = originalText.length - 4; // minus "/*" and "*/"
-  const phrase = pickPhrase(phrasePoolFor(contentLength), seed);
+  const phrase = pickPhrase(phrasePoolFor(contentLength, stealth), seed);
 
   if (newlineCount === 0) return `/* ${phrase} */`;
   return `/* ${phrase}${'\n'.repeat(newlineCount - 1)}\n*/`;
 }
 
-function phrasePoolFor(contentLength: number): string[] {
-  if (contentLength <= SHORT_MAX_LENGTH) return SHORT_PHRASES;
-  if (contentLength <= MEDIUM_MAX_LENGTH) return MEDIUM_PHRASES;
-  return LONG_PHRASES;
+function phrasePoolFor(contentLength: number, stealth: boolean): string[] {
+  if (contentLength <= SHORT_MAX_LENGTH) return stealth ? STEALTH_SHORT_PHRASES : COMPACT_SHORT_PHRASES;
+  if (contentLength <= MEDIUM_MAX_LENGTH) return stealth ? STEALTH_MEDIUM_PHRASES : COMPACT_MEDIUM_PHRASES;
+  return stealth ? STEALTH_LONG_PHRASES : COMPACT_LONG_PHRASES;
 }

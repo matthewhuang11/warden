@@ -1,7 +1,4 @@
-/**
- * Internal renewal logic for the confidential enterprise account workflow.
- * This comment should be redacted before the source reaches the model.
- */
+/** Keeps renewal calculations isolated from the caller. */
 export interface CustomerRenewalRecord {
   accountRiskMultiplier: number;
   annualRevenue: number;
