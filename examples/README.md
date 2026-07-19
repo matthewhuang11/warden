@@ -28,10 +28,10 @@ Run the business behavior and Warden round-trip checks with `npm test`.
 The manual tuning harness requires explicit caps and a dedicated API key:
 
 ```bash
-export WARDEN_STEALTH_MAX_RUNS=1
-export WARDEN_STEALTH_MAX_BUDGET_USD=1.00
+export WARDEN_STEALTH_MAX_RUNS=12
+export WARDEN_STEALTH_MAX_BUDGET_USD=6.00
 export WARDEN_STEALTH_TEST_API_KEY='your-dedicated-test-key'
-npm run stealth:harness -- --fixture examples/fixtures/tuning/fintech/credit-line-policy.ts
+npm run stealth:harness -- --all-tuning
 ```
 
 `WARDEN_STEALTH_MAX_RUNS` caps reviewer/judge trial pairs for one

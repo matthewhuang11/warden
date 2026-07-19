@@ -12,6 +12,8 @@ import {
   extractClaudeResult,
   parseJudgeVerdict,
   readHarnessConfig,
+  summarizeSuspicion,
+  writePassSummary,
   writeTrialArtifacts,
   type HarnessConfig,
   type TrialCapture,
@@ -47,18 +49,32 @@ describe('stealth harness guardrails', () => {
     expect(() =>
       readHarnessConfig(['--fixture', 'examples/fixtures/held-out/fintech/treasury-sweep.ts'], cappedEnv),
     ).toThrow(/Held-out fixture/);
-    expect(() => readHarnessConfig(['--runs', '4'], cappedEnv)).toThrow(/between 1/);
+    expect(() => readHarnessConfig(['--runs', '4'], cappedEnv)).toThrow(/exceeds/);
+  });
+
+  it('requires at least three trials per fixture and one cap covering the full tuning pass', () => {
+    const passEnv = { ...cappedEnv, WARDEN_STEALTH_MAX_RUNS: '12', WARDEN_STEALTH_MAX_BUDGET_USD: '6' };
+    expect(() => readHarnessConfig(['--all-tuning', '--runs', '2'], passEnv)).toThrow(/at least 3/);
+
+    const config = readHarnessConfig(['--all-tuning'], passEnv);
+    expect(config.fixturePaths).toHaveLength(4);
+    expect(config.trialsPerFixture).toBe(3);
+    expect(config.fixturePaths.length * config.trialsPerFixture).toBe(12);
   });
 
   it('routes a bare read-only reviewer through Warden with its share of the total budget', () => {
     const config = readHarnessConfig(['--runs', '3'], cappedEnv);
-    const args = buildClaudeArgs(config, config.totalBudgetUsd / (config.runs * 2));
+    const args = buildClaudeArgs(
+      config,
+      config.fixturePaths[0],
+      config.totalBudgetUsd / (config.trialsPerFixture * 2),
+    );
     const env = buildClaudeEnv(config, 43123);
 
     expect(args).toContain('--bare');
     expect(args).toContain('Read');
     expect(args).toContain('0.2500');
-    expect(args.at(-1)).toContain(config.fixturePath);
+    expect(args.at(-1)).toContain(config.fixturePaths[0]);
     expect(env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:43123');
     expect(env.ANTHROPIC_API_KEY).toBe(cappedEnv.WARDEN_STEALTH_TEST_API_KEY);
     expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
@@ -125,7 +141,7 @@ describe('stealth harness guardrails', () => {
     expect(env.WARDEN_CONNECT_CONFIG).toBe('/test/workspace/.warden/stealth-harness-43123-no-connect.json');
   });
 
-  it('always stops the fresh proxy when a Claude trial fails', async () => {
+  it('records a Claude failure, continues the pass, and stops the fresh proxy', async () => {
     const config = readHarnessConfig([], cappedEnv);
     const stop = vi.fn(async () => undefined);
     const saveTrial = vi.fn(async () => '/artifacts/failed-trial');
@@ -140,7 +156,13 @@ describe('stealth harness guardrails', () => {
       saveTrial,
     };
 
-    await expect(executeHarness(config, runtime)).rejects.toThrow('simulated Claude failure');
+    await expect(executeHarness(config, runtime)).resolves.toEqual([
+      expect.objectContaining({
+        status: 'failed',
+        error: 'simulated Claude failure',
+        judge: { status: 'not_run', error: 'Reviewer call failed before judging' },
+      }),
+    ]);
     expect(runtime.startProxy).toHaveBeenCalledOnce();
     expect(saveTrial).toHaveBeenCalledWith(
       config,
@@ -157,7 +179,7 @@ describe('stealth harness guardrails', () => {
     const saveTrial = vi.fn(async (_config: HarnessConfig, capture: TrialCapture) => `/artifacts/${capture.runNumber}`);
     const runtime = {
       startProxy: vi.fn(async () => ({ port: 43123, readLogs: () => logs, stop })),
-      runClaude: vi.fn(async (_config: HarnessConfig, _port: number, runNumber: number) => {
+      runClaude: vi.fn(async (_config: HarnessConfig, _fixturePath: string, _port: number, runNumber: number) => {
         logs += `exchange-${runNumber}\n`;
         return JSON.stringify({ result: `trial-${runNumber}` });
       }),
@@ -202,7 +224,13 @@ describe('stealth harness guardrails', () => {
       saveTrial,
     };
 
-    await expect(executeHarness(config, runtime)).rejects.toThrow('simulated judge failure');
+    await expect(executeHarness(config, runtime)).resolves.toEqual([
+      expect.objectContaining({
+        status: 'failed',
+        error: 'Judge call failed',
+        judge: { status: 'failed', error: 'simulated judge failure' },
+      }),
+    ]);
     expect(saveTrial).toHaveBeenCalledWith(
       config,
       expect.objectContaining({
@@ -213,12 +241,75 @@ describe('stealth harness guardrails', () => {
     expect(stop).toHaveBeenCalledOnce();
   });
 
+  it('computes a suspicion rate per fixture from completed judge verdicts', () => {
+    const config = readHarnessConfig([], cappedEnv);
+    const baseCapture: TrialCapture = {
+      runNumber: 1,
+      fixturePath: config.fixturePaths[0],
+      task: config.task,
+      model: config.model,
+      budgetUsd: 0.25,
+      startedAt: '2026-07-19T18:00:00.000Z',
+      completedAt: '2026-07-19T18:00:01.000Z',
+      status: 'passed',
+      responseText: '{}',
+      wardenLog: 'exchange\n',
+      judge: { status: 'completed', suspicious: false, quote: null, reason: 'clean' },
+    };
+    const captures: TrialCapture[] = [
+      baseCapture,
+      {
+        ...baseCapture,
+        runNumber: 2,
+        judge: { status: 'completed', suspicious: true, quote: 'synthetic names', reason: 'flagged' },
+      },
+      { ...baseCapture, runNumber: 3 },
+    ];
+
+    expect(summarizeSuspicion(captures)).toEqual([
+      {
+        fixturePath: config.fixturePaths[0],
+        completedTrials: 3,
+        suspiciousTrials: 1,
+        failedTrials: 0,
+        suspicionRate: 1 / 3,
+      },
+    ]);
+  });
+
+  it('writes a private aggregate tuning-pass summary', async () => {
+    const outputDir = path.join(tmpdir(), `warden-stealth-summary-${process.pid}-${Date.now()}`);
+    const config = { ...readHarnessConfig([], cappedEnv), outputDir };
+    const capture: TrialCapture = {
+      runNumber: 1,
+      fixturePath: config.fixturePaths[0],
+      task: config.task,
+      model: config.model,
+      budgetUsd: 0.25,
+      startedAt: '2026-07-19T18:00:00.000Z',
+      completedAt: '2026-07-19T18:00:01.000Z',
+      status: 'passed',
+      responseText: '{}',
+      wardenLog: 'exchange\n',
+      judge: { status: 'completed', suspicious: false, quote: null, reason: 'clean' },
+    };
+
+    const summaryPath = await writePassSummary(config, [capture]);
+    const summary = JSON.parse(await readFile(summaryPath, 'utf8')) as {
+      totalTrialPairs: number;
+      summaries: Array<{ suspicionRate: number }>;
+    };
+    expect(summary.totalTrialPairs).toBe(1);
+    expect(summary.summaries[0].suspicionRate).toBe(0);
+    expect((await stat(summaryPath)).mode & 0o777).toBe(0o600);
+  });
+
   it('writes private response, Warden log, and credential-free metadata artifacts', async () => {
     const outputDir = path.join(tmpdir(), `warden-stealth-artifacts-${process.pid}-${Date.now()}`);
     const config = { ...readHarnessConfig([], cappedEnv), outputDir };
     const capture: TrialCapture = {
       runNumber: 1,
-      fixturePath: config.fixturePath,
+      fixturePath: config.fixturePaths[0],
       task: config.task,
       model: config.model,
       budgetUsd: 1.5,
@@ -235,7 +326,7 @@ describe('stealth harness guardrails', () => {
     expect(await readFile(path.join(artifactDirectory, 'response.txt'), 'utf8')).toBe(capture.responseText);
     expect(await readFile(path.join(artifactDirectory, 'warden.log'), 'utf8')).toBe(capture.wardenLog);
     expect(JSON.parse(await readFile(path.join(artifactDirectory, 'verdict.json'), 'utf8'))).toEqual(capture.judge);
-    expect(metadata).toContain(config.fixturePath);
+    expect(metadata).toContain(config.fixturePaths[0]);
     expect(metadata).toContain(config.judgeModel);
     expect(metadata).not.toContain(cappedEnv.WARDEN_STEALTH_TEST_API_KEY);
     expect((await stat(artifactDirectory)).mode & 0o777).toBe(0o700);
