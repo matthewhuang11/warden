@@ -1,5 +1,6 @@
 import type Parser from 'web-tree-sitter';
 import type { RenameMap } from './renameMap.js';
+import { createAuditEvent, type AuditEvent } from '../audit/auditTypes.js';
 
 export interface RedactionOptions {
   redactComments: boolean;
@@ -10,6 +11,7 @@ export interface RedactionResult {
   output: string;
   commentsRedacted: number;
   stringsRedacted: number;
+  auditEvents: AuditEvent[];
 }
 
 // Strings shorter than this are almost always structural (flags, short
@@ -47,6 +49,7 @@ export function redactSensitiveText(
   const sites: { startIndex: number; endIndex: number; replacement: string }[] = [];
   let commentsRedacted = 0;
   let stringsRedacted = 0;
+  const auditEvents: AuditEvent[] = [];
 
   function walk(node: Parser.SyntaxNode): void {
     if (options.redactComments && node.type === 'comment') {
@@ -59,6 +62,7 @@ export function redactSensitiveText(
         replacement: buildCommentPlaceholder(node.text, commentsRedacted, renameMap.isStealth),
       });
       commentsRedacted += 1;
+      auditEvents.push(createAuditEvent('comment', node.text));
       return;
     }
 
@@ -73,6 +77,7 @@ export function redactSensitiveText(
         const token = renameMap.getOrCreate(rawContent, 'string');
         sites.push({ startIndex: node.startIndex + 1, endIndex: node.endIndex - 1, replacement: token });
         stringsRedacted += 1;
+        auditEvents.push(createAuditEvent('string', rawContent));
       }
       return; // nothing further inside a plain string is reachable/relevant
     }
@@ -85,7 +90,7 @@ export function redactSensitiveText(
   walk(root);
 
   if (sites.length === 0) {
-    return { output: source, commentsRedacted: 0, stringsRedacted: 0 };
+    return { output: source, commentsRedacted: 0, stringsRedacted: 0, auditEvents: [] };
   }
 
   sites.sort((a, b) => b.startIndex - a.startIndex);
@@ -94,7 +99,7 @@ export function redactSensitiveText(
     output = output.slice(0, site.startIndex) + site.replacement + output.slice(site.endIndex);
   }
 
-  return { output, commentsRedacted, stringsRedacted };
+  return { output, commentsRedacted, stringsRedacted, auditEvents };
 }
 
 function shouldRedactString(stringNode: Parser.SyntaxNode): boolean {

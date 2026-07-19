@@ -7,6 +7,7 @@ import type { RenameMap } from './renameMap.js';
 import { stripLineNumberPrefixes, restoreLineNumberPrefixes } from './lineNumberFormat.js';
 import { logger } from '../log.js';
 import { config } from '../config.js';
+import { createAuditEvent, type AuditEvent } from '../audit/auditTypes.js';
 
 export interface ObfuscateResult {
   output: string;
@@ -18,6 +19,7 @@ export interface ObfuscateResult {
   dialect: Dialect | null;
   commentsRedacted: number;
   stringsRedacted: number;
+  auditEvents: AuditEvent[];
 }
 
 const DIALECT_ATTEMPT_ORDER: Dialect[] = ['typescript', 'tsx'];
@@ -92,7 +94,15 @@ export async function obfuscateCode(source: string, renameMap: RenameMap): Promi
       lineCount,
       maxLines: MAX_OBFUSCATABLE_LINES,
     });
-    return { output: source, renamed: false, renamedCount: 0, dialect: null, commentsRedacted: 0, stringsRedacted: 0 };
+    return {
+      output: source,
+      renamed: false,
+      renamedCount: 0,
+      dialect: null,
+      commentsRedacted: 0,
+      stringsRedacted: 0,
+      auditEvents: [],
+    };
   }
 
   const lineNumbered = stripLineNumberPrefixes(source);
@@ -134,12 +144,24 @@ export async function obfuscateCode(source: string, renameMap: RenameMap): Promi
     }
 
     const analysis = analyzeScopes(renameTree.rootNode, renameMap);
+    const auditEvents = [
+      ...analysis.declarations.map((declaration) => createAuditEvent('identifier', declaration.originalName)),
+      ...redaction.auditEvents,
+    ];
     const { output, renamedCount } = applyRenames(renameSource, analysis, renameMap);
     renameMap.clearForbiddenNames();
     const restored = lineNumbered ? restoreLineNumberPrefixes(output, lineNumbered.prefixes) : output;
     if (restored === null) {
       logger.warn('obfuscate.line_number_restore_failed', { sourceLength: source.length });
-      return { output: source, renamed: false, renamedCount: 0, dialect: null, commentsRedacted: 0, stringsRedacted: 0 };
+      return {
+        output: source,
+        renamed: false,
+        renamedCount: 0,
+        dialect: null,
+        commentsRedacted: 0,
+        stringsRedacted: 0,
+        auditEvents: [],
+      };
     }
 
     logger.info('obfuscate.applied', {
@@ -148,6 +170,7 @@ export async function obfuscateCode(source: string, renameMap: RenameMap): Promi
       renamedCount,
       commentsRedacted: redaction.commentsRedacted,
       stringsRedacted: redaction.stringsRedacted,
+      auditEvents,
       lineNumbered: lineNumbered !== null,
     });
     return {
@@ -157,9 +180,18 @@ export async function obfuscateCode(source: string, renameMap: RenameMap): Promi
       dialect,
       commentsRedacted: redaction.commentsRedacted,
       stringsRedacted: redaction.stringsRedacted,
+      auditEvents,
     };
   }
 
   logger.warn('obfuscate.parse_failed', { sourceLength: source.length, lineNumbered: lineNumbered !== null });
-  return { output: source, renamed: false, renamedCount: 0, dialect: null, commentsRedacted: 0, stringsRedacted: 0 };
+  return {
+    output: source,
+    renamed: false,
+    renamedCount: 0,
+    dialect: null,
+    commentsRedacted: 0,
+    stringsRedacted: 0,
+    auditEvents: [],
+  };
 }

@@ -1,6 +1,8 @@
 import { config } from './config.js';
 import { logger } from './log.js';
 import { createProxyServer } from './server.js';
+import { EncryptedAuditLog } from './audit/auditLog.js';
+import { configureAuditLog } from './audit/runtime.js';
 import {
   formatUpstreamUrlForDisplay,
   printBanner,
@@ -10,6 +12,12 @@ import {
 } from './consoleOutput.js';
 
 const UPSTREAM_REACHABILITY_CHECK_TIMEOUT_MS = 5000;
+
+configureAuditLog(
+  new EncryptedAuditLog({
+    filePath: `${process.cwd()}/.warden/audit.log.enc`,
+  }),
+);
 
 const server = createProxyServer();
 

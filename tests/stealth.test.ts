@@ -34,4 +34,19 @@ describe('stealth aliases', () => {
     expect(result.output).not.toMatch(/internal enterprise pricing details/);
     expect(rehydrateText(result.output, map)).toBe(source);
   });
+
+  it('emits hashed audit events for each protected category', async () => {
+    const source = [
+      '// confidential renewal pricing note',
+      'function calculateRenewalOffer(record) {',
+      '  const pricingMessage = "Internal enterprise renewal multiplier for strategic accounts";',
+      '  return record.value;',
+      '}',
+    ].join('\n');
+    const result = await obfuscateCode(source, new RenameMap(100, 60_000, 'stealth'));
+
+    expect(result.auditEvents.map((event) => event.category)).toEqual(['identifier', 'identifier', 'comment', 'string']);
+    expect(result.auditEvents.every((event) => /^[a-f0-9]{64}$/.test(event.valueHash))).toBe(true);
+    expect(result.auditEvents.every((event) => !event.valueHash.includes('pricing'))).toBe(true);
+  });
 });

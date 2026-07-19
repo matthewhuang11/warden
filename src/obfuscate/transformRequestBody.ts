@@ -1,6 +1,7 @@
 import { obfuscateCode } from './obfuscateCode.js';
 import { obfuscateKnownNames } from './obfuscateKnownNames.js';
 import type { RenameMap } from './renameMap.js';
+import type { AuditEvent } from '../audit/auditTypes.js';
 
 // A human-readable label for one obfuscated block (e.g. a file path or
 // "Bash: <command>"), purely for presentation — doesn't affect what gets
@@ -17,6 +18,7 @@ export interface TransformStats {
   commentsRedacted: number;
   stringsRedacted: number;
   secretsRedacted: number;
+  auditEvents: AuditEvent[];
   blocks: ObfuscatedBlockSummary[];
 }
 
@@ -47,6 +49,7 @@ export async function transformRequestBody(
     commentsRedacted: 0,
     stringsRedacted: 0,
     secretsRedacted: 0,
+    auditEvents: [],
     blocks: [],
   };
 
@@ -165,6 +168,7 @@ async function obfuscateText(text: string, renameMap: RenameMap, stats: Transfor
     stats.totalIdentifiersRenamed += result.renamedCount;
     stats.commentsRedacted += result.commentsRedacted;
     stats.stringsRedacted += result.stringsRedacted;
+    stats.auditEvents.push(...result.auditEvents);
     stats.blocks.push({ label, renamedCount: result.renamedCount });
   }
   return result.output;

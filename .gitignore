@@ -5,3 +5,4 @@ dist/
 .env
 .env.local
 fuzz-failures.log
+.warden/
