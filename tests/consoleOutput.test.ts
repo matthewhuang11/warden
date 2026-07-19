@@ -26,6 +26,7 @@ describe('TerminalStatsPanel', () => {
       commentsRedacted: 1,
       stringsRedacted: 2,
       secretsRedacted: 0,
+      auditEvents: [],
       blocks: [],
     });
     panel.record({
@@ -35,6 +36,7 @@ describe('TerminalStatsPanel', () => {
       commentsRedacted: 0,
       stringsRedacted: 1,
       secretsRedacted: 2,
+      auditEvents: [],
       blocks: [],
     });
 
@@ -55,6 +57,7 @@ describe('TerminalStatsPanel', () => {
       commentsRedacted: 0,
       stringsRedacted: 0,
       secretsRedacted: 0,
+      auditEvents: [],
       blocks: [],
     });
 
