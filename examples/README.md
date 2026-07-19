@@ -18,8 +18,8 @@ changes to Warden.
 
 ## Held-out set
 
-- `fixtures/held-out/fintech/invoice-advance.ts` prices receivables financing decisions.
-- `fixtures/held-out/healthtech/post-discharge-followup.ts` schedules transitional-care outreach.
+- `fixtures/held-out/fintech/merchant-payout-schedule.ts` schedules protected merchant disbursements.
+- `fixtures/held-out/healthtech/specialty-referral-routing.ts` routes specialty-care referrals.
 
 The tuning loop must not read, embed, or select these files. They are used
 only for the post-revision generalization check. Ordinary deterministic

@@ -8,7 +8,7 @@
     "examples/fixtures/tuning/healthtech/adherence-outreach.ts"
   ],
   "heldOut": [
-    "examples/fixtures/held-out/fintech/invoice-advance.ts",
-    "examples/fixtures/held-out/healthtech/post-discharge-followup.ts"
+    "examples/fixtures/held-out/fintech/merchant-payout-schedule.ts",
+    "examples/fixtures/held-out/healthtech/specialty-referral-routing.ts"
   ]
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { priceInvoiceAdvance } from './fixtures/held-out/fintech/invoice-advance.js';
-import { schedulePostDischargeFollowUp } from './fixtures/held-out/healthtech/post-discharge-followup.js';
+import { scheduleMerchantPayout } from './fixtures/held-out/fintech/merchant-payout-schedule.js';
+import { routeSpecialtyReferral } from './fixtures/held-out/healthtech/specialty-referral-routing.js';
 import { assessCreditLine } from './fixtures/tuning/fintech/credit-line-policy.js';
 import { calculateSettlementReserve } from './fixtures/tuning/fintech/settlement-reserve.js';
 import { planTreasurySweep } from './fixtures/tuning/fintech/treasury-sweep.js';
@@ -96,30 +96,30 @@ describe('fintech fixture corpus', () => {
     ).toEqual({ transferCents: 0, retainedBalanceCents: 3_000_000, reason: 'insufficient_buffer' });
   });
 
-  it('prices an invoice advance from dilution, concentration, and duration risk', () => {
+  it('protects reserves and refunds before scheduling a same-day payout', () => {
     expect(
-      priceInvoiceAdvance({
-        invoiceFaceValueCents: 10_000_000,
-        daysUntilDue: 45,
-        customerPaymentHistoryScore: 0.9,
-        customerConcentrationShare: 0.2,
-        priorDilutionRate: 0.03,
-        activeDispute: false,
+      scheduleMerchantPayout({
+        availableSettlementCents: 2_000_000,
+        rollingReserveCents: 300_000,
+        pendingRefundCents: 150_000,
+        payoutFrequency: 'daily',
+        bankAccountVerified: true,
+        complianceHold: false,
       }),
-    ).toEqual({ advanceCents: 7_600_000, feeCents: 201_400, reserveCents: 800_000, reviewLane: 'auto_approve' });
+    ).toEqual({ payoutCents: 1_500_000, deferredCents: 500_000, schedule: 'same_day', reviewRequired: false });
   });
 
-  it('declines advances against disputed invoices', () => {
+  it('blocks payouts while a compliance hold is active', () => {
     expect(
-      priceInvoiceAdvance({
-        invoiceFaceValueCents: 10_000_000,
-        daysUntilDue: 30,
-        customerPaymentHistoryScore: 0.9,
-        customerConcentrationShare: 0.1,
-        priorDilutionRate: 0.01,
-        activeDispute: true,
+      scheduleMerchantPayout({
+        availableSettlementCents: 750_000,
+        rollingReserveCents: 100_000,
+        pendingRefundCents: 25_000,
+        payoutFrequency: 'daily',
+        bankAccountVerified: true,
+        complianceHold: true,
       }),
-    ).toEqual({ advanceCents: 0, feeCents: 0, reserveCents: 0, reviewLane: 'decline' });
+    ).toEqual({ payoutCents: 0, deferredCents: 750_000, schedule: 'blocked', reviewRequired: true });
   });
 });
 
@@ -210,39 +210,39 @@ describe('healthtech fixture corpus', () => {
     ).toEqual({ priorityScore: 23, channel: 'none', retryAfterDays: 14 });
   });
 
-  it('schedules a home visit for a high-risk patient with transportation barriers', () => {
+  it('expedites a high-acuity referral through care navigation', () => {
     expect(
-      schedulePostDischargeFollowUp({
-        readmissionRiskScore: 0.82,
-        medicationChangesCount: 3,
-        emergencyVisitsLastSixMonths: 1,
-        hasPrimaryCareAppointment: false,
-        transportationBarrier: true,
-        declinedFollowUp: false,
+      routeSpecialtyReferral({
+        acuityScore: 0.9,
+        symptomDurationDays: 120,
+        failedFirstLineTreatments: 2,
+        inNetworkSpecialistAvailable: false,
+        priorReferralClosed: true,
+        patientDeclined: false,
       }),
     ).toEqual({
-      dueWithinHours: 24,
-      channel: 'home_visit',
-      medicationReconciliationRequired: true,
-      escalationRequired: true,
+      urgency: 'urgent',
+      dueWithinDays: 2,
+      route: 'care_navigation',
+      clinicalReviewRequired: true,
     });
   });
 
-  it('uses routine portal follow-up for a stable discharge', () => {
+  it('routes a persistent referral to an available specialist', () => {
     expect(
-      schedulePostDischargeFollowUp({
-        readmissionRiskScore: 0.2,
-        medicationChangesCount: 0,
-        emergencyVisitsLastSixMonths: 0,
-        hasPrimaryCareAppointment: true,
-        transportationBarrier: false,
-        declinedFollowUp: false,
+      routeSpecialtyReferral({
+        acuityScore: 0.45,
+        symptomDurationDays: 120,
+        failedFirstLineTreatments: 3,
+        inNetworkSpecialistAvailable: true,
+        priorReferralClosed: false,
+        patientDeclined: false,
       }),
     ).toEqual({
-      dueWithinHours: 120,
-      channel: 'portal_message',
-      medicationReconciliationRequired: false,
-      escalationRequired: false,
+      urgency: 'priority',
+      dueWithinDays: 7,
+      route: 'in_network',
+      clinicalReviewRequired: false,
     });
   });
 });

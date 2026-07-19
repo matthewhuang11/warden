@@ -72,7 +72,7 @@ describe('stealth harness guardrails', () => {
 
   it('rejects held-out fixtures and runs above the agreed cap', () => {
     expect(() =>
-      readHarnessConfig(['--fixture', 'examples/fixtures/held-out/fintech/invoice-advance.ts'], cappedEnv),
+      readHarnessConfig(['--fixture', 'examples/fixtures/held-out/fintech/merchant-payout-schedule.ts'], cappedEnv),
     ).toThrow(/Held-out fixture/);
     expect(() => readHarnessConfig(['--runs', '4'], cappedEnv)).toThrow(/exceeds/);
   });
