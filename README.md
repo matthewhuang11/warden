@@ -56,6 +56,7 @@ To go back to talking to Anthropic directly, `unset ANTHROPIC_BASE_URL`
 | `WARDEN_UPSTREAM_BASE_URL` | `https://api.anthropic.com` | Where requests are forwarded |
 | `WARDEN_OBFUSCATION_DISABLED` | unset | Set to `1` to run as a pure passthrough (no obfuscation) |
 | `WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS` | `30000` | How long to wait for the upstream to start responding before failing the request with a `504` |
+| `WARDEN_MAX_REQUEST_BODY_BYTES` | `10485760` | Maximum request body size accepted by the proxy; larger requests receive a `413` before forwarding |
 | `WARDEN_VERBOSE` | unset | Set to `1` for detailed JSON logs (see **Watching it work**) |
 | `WARDEN_REDACT_COMMENTS` | enabled | Set to `0` to stop redacting comments (see **What gets obfuscated**) |
 | `WARDEN_REDACT_STRINGS` | enabled | Set to `0` to stop redacting long, business-sounding string literals (see **What gets obfuscated**) |
@@ -178,6 +179,9 @@ either off):
   and goes out untouched. This heuristic is deliberately simple (length +
   word-separator check only) per spec — it isn't, and doesn't try to be, a
   true "does this look like business prose" classifier.
+- **Requests larger than `WARDEN_MAX_REQUEST_BODY_BYTES` (10 MiB by default)
+  are rejected with a `413` before obfuscation or forwarding.** This bounds
+  memory use when the proxy buffers a request body for inspection.
 - **Template literals (`` `...` ``) are never touched**, even ones that
   are 100% static, long, multi-word business text. They commonly mix
   static text with interpolated expressions (`` `Order ${id} exceeds the

@@ -3,6 +3,7 @@ export interface WardenConfig {
   upstreamBaseUrl: string;
   obfuscationEnabled: boolean;
   upstreamHeadersTimeoutMs: number;
+  maxRequestBodyBytes: number;
   redactComments: boolean;
   redactStrings: boolean;
 }
@@ -29,11 +30,17 @@ function readConfig(env: NodeJS.ProcessEnv): WardenConfig {
     throw new Error(`Invalid WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS: ${env.WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS}`);
   }
 
+  const maxRequestBodyBytes = Number.parseInt(env.WARDEN_MAX_REQUEST_BODY_BYTES ?? `${10 * 1024 * 1024}`, 10);
+  if (!Number.isInteger(maxRequestBodyBytes) || maxRequestBodyBytes <= 0) {
+    throw new Error(`Invalid WARDEN_MAX_REQUEST_BODY_BYTES: ${env.WARDEN_MAX_REQUEST_BODY_BYTES}`);
+  }
+
   return {
     port,
     upstreamBaseUrl,
     obfuscationEnabled: env.WARDEN_OBFUSCATION_DISABLED !== '1',
     upstreamHeadersTimeoutMs,
+    maxRequestBodyBytes,
     redactComments: env.WARDEN_REDACT_COMMENTS !== '0',
     redactStrings: env.WARDEN_REDACT_STRINGS !== '0',
   };

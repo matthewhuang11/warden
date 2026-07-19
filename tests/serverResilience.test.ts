@@ -19,12 +19,14 @@ function close(server: Server): Promise<void> {
 
 const originalUpstreamBaseUrl = config.upstreamBaseUrl;
 const originalUpstreamHeadersTimeoutMs = config.upstreamHeadersTimeoutMs;
+const originalMaxRequestBodyBytes = config.maxRequestBodyBytes;
 
 const openServers: Server[] = [];
 
 afterEach(async () => {
   config.upstreamBaseUrl = originalUpstreamBaseUrl;
   config.upstreamHeadersTimeoutMs = originalUpstreamHeadersTimeoutMs;
+  config.maxRequestBodyBytes = originalMaxRequestBodyBytes;
   await Promise.all(openServers.splice(0).map(close));
 });
 
@@ -159,6 +161,46 @@ describe('upstream target isolation', () => {
 
     expect(absoluteTargetStatus).toBe(400);
     expect(upstreamRequests).toBe(1);
+  });
+});
+
+describe('request body limits', () => {
+  it('rejects oversized obfuscated requests before contacting the upstream', async () => {
+    config.maxRequestBodyBytes = 64;
+    let upstreamRequests = 0;
+    const { proxyUrl } = await startProxyWithUpstream((_req, res) => {
+      upstreamRequests += 1;
+      res.writeHead(200);
+      res.end();
+    });
+
+    const res = await fetch(`${proxyUrl}/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'x'.repeat(100) }] }),
+    });
+
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({ error: 'request_body_too_large' });
+    expect(upstreamRequests).toBe(0);
+  });
+
+  it('applies the same limit to pass-through requests', async () => {
+    config.maxRequestBodyBytes = 4;
+    let upstreamRequests = 0;
+    const { proxyUrl } = await startProxyWithUpstream((_req, res) => {
+      upstreamRequests += 1;
+      res.writeHead(200);
+      res.end();
+    });
+
+    const res = await fetch(`${proxyUrl}/health`, {
+      method: 'POST',
+      body: '12345',
+    });
+
+    expect(res.status).toBe(413);
+    expect(upstreamRequests).toBe(0);
   });
 });
 

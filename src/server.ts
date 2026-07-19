@@ -72,11 +72,34 @@ export function createProxyServer(): Server {
 }
 
 async function readRequestBody(req: IncomingMessage): Promise<Buffer> {
+  const contentLength = req.headers['content-length'];
+  if (typeof contentLength === 'string') {
+    const declaredLength = Number.parseInt(contentLength, 10);
+    if (Number.isSafeInteger(declaredLength) && declaredLength > config.maxRequestBodyBytes) {
+      req.resume();
+      throw new RequestBodyTooLargeError();
+    }
+  }
+
   const chunks: Buffer[] = [];
+  let totalBytes = 0;
   for await (const chunk of req) {
-    chunks.push(chunk as Buffer);
+    const buffer = chunk as Buffer;
+    totalBytes += buffer.length;
+    if (totalBytes > config.maxRequestBodyBytes) {
+      req.resume();
+      throw new RequestBodyTooLargeError();
+    }
+    chunks.push(buffer);
   }
   return Buffer.concat(chunks);
+}
+
+class RequestBodyTooLargeError extends Error {
+  constructor() {
+    super('Request body exceeds the configured maximum size');
+    this.name = 'RequestBodyTooLargeError';
+  }
 }
 
 async function prepareObfuscatedBody(raw: Buffer, path: string): Promise<string | Buffer> {
@@ -134,11 +157,20 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
   const shouldObfuscate = config.obfuscationEnabled && hasBody && method === 'POST' && target.pathname === '/v1/messages';
 
   let body: ReadableStream | string | Buffer | undefined;
-  if (shouldObfuscate) {
-    const raw = await readRequestBody(req);
-    body = await prepareObfuscatedBody(raw, path);
-  } else if (hasBody) {
-    body = Readable.toWeb(req) as unknown as ReadableStream;
+  if (hasBody) {
+    let raw: Buffer;
+    try {
+      raw = await readRequestBody(req);
+    } catch (err) {
+      if (err instanceof RequestBodyTooLargeError) {
+        logger.warn('request.body_too_large', { method, path, maxBytes: config.maxRequestBodyBytes });
+        res.writeHead(413, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'request_body_too_large' }));
+        return;
+      }
+      throw err;
+    }
+    body = shouldObfuscate ? await prepareObfuscatedBody(raw, path) : raw;
   }
   const isStreamingBody = typeof ReadableStream !== 'undefined' && body instanceof ReadableStream;
 
