@@ -15,7 +15,7 @@ const fixturePaths = [...manifest.tuning, ...manifest.heldOut];
 
 describe('stealth fixture corpus', () => {
   it('keeps tuning and held-out membership complete, disjoint, and cross-domain', async () => {
-    expect(manifest.tuning).toHaveLength(5);
+    expect(manifest.tuning).toHaveLength(6);
     expect(manifest.heldOut).toHaveLength(2);
     expect(new Set(fixturePaths).size).toBe(fixturePaths.length);
     expect(manifest.tuning.some((path) => path.includes('/fintech/'))).toBe(true);

@@ -4,10 +4,11 @@
     "examples/fixtures/tuning/fintech/settlement-reserve.ts",
     "examples/fixtures/tuning/fintech/treasury-sweep.ts",
     "examples/fixtures/tuning/healthtech/care-gap-priority.ts",
-    "examples/fixtures/tuning/healthtech/prior-authorization.ts"
+    "examples/fixtures/tuning/healthtech/prior-authorization.ts",
+    "examples/fixtures/tuning/healthtech/adherence-outreach.ts"
   ],
   "heldOut": [
     "examples/fixtures/held-out/fintech/invoice-advance.ts",
-    "examples/fixtures/held-out/healthtech/adherence-outreach.ts"
+    "examples/fixtures/held-out/healthtech/post-discharge-followup.ts"
   ]
 }

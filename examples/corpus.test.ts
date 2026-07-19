@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { priceInvoiceAdvance } from './fixtures/held-out/fintech/invoice-advance.js';
-import { recommendAdherenceOutreach } from './fixtures/held-out/healthtech/adherence-outreach.js';
+import { schedulePostDischargeFollowUp } from './fixtures/held-out/healthtech/post-discharge-followup.js';
 import { assessCreditLine } from './fixtures/tuning/fintech/credit-line-policy.js';
 import { calculateSettlementReserve } from './fixtures/tuning/fintech/settlement-reserve.js';
 import { planTreasurySweep } from './fixtures/tuning/fintech/treasury-sweep.js';
 import { prioritizeCareGap } from './fixtures/tuning/healthtech/care-gap-priority.js';
+import { recommendAdherenceOutreach } from './fixtures/tuning/healthtech/adherence-outreach.js';
 import { routeAuthorizationRequest } from './fixtures/tuning/healthtech/prior-authorization.js';
 
 describe('fintech fixture corpus', () => {
@@ -207,5 +208,41 @@ describe('healthtech fixture corpus', () => {
         optedOut: false,
       }),
     ).toEqual({ priorityScore: 23, channel: 'none', retryAfterDays: 14 });
+  });
+
+  it('schedules a home visit for a high-risk patient with transportation barriers', () => {
+    expect(
+      schedulePostDischargeFollowUp({
+        readmissionRiskScore: 0.82,
+        medicationChangesCount: 3,
+        emergencyVisitsLastSixMonths: 1,
+        hasPrimaryCareAppointment: false,
+        transportationBarrier: true,
+        declinedFollowUp: false,
+      }),
+    ).toEqual({
+      dueWithinHours: 24,
+      channel: 'home_visit',
+      medicationReconciliationRequired: true,
+      escalationRequired: true,
+    });
+  });
+
+  it('uses routine portal follow-up for a stable discharge', () => {
+    expect(
+      schedulePostDischargeFollowUp({
+        readmissionRiskScore: 0.2,
+        medicationChangesCount: 0,
+        emergencyVisitsLastSixMonths: 0,
+        hasPrimaryCareAppointment: true,
+        transportationBarrier: false,
+        declinedFollowUp: false,
+      }),
+    ).toEqual({
+      dueWithinHours: 120,
+      channel: 'portal_message',
+      medicationReconciliationRequired: false,
+      escalationRequired: false,
+    });
   });
 });

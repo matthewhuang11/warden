@@ -96,13 +96,13 @@ describe('stealth harness guardrails', () => {
   });
 
   it('requires at least three trials per fixture and one cap covering the full tuning pass', () => {
-    const passEnv = { ...cappedEnv, WARDEN_STEALTH_MAX_RUNS: '15', WARDEN_STEALTH_MAX_BUDGET_USD: '7.5' };
+    const passEnv = { ...cappedEnv, WARDEN_STEALTH_MAX_RUNS: '18', WARDEN_STEALTH_MAX_BUDGET_USD: '9' };
     expect(() => readHarnessConfig(['--all-tuning', '--runs', '2'], passEnv)).toThrow(/at least 3/);
 
     const config = readHarnessConfig(['--all-tuning'], passEnv);
-    expect(config.fixturePaths).toHaveLength(5);
+    expect(config.fixturePaths).toHaveLength(6);
     expect(config.trialsPerFixture).toBe(3);
-    expect(config.fixturePaths.length * config.trialsPerFixture).toBe(15);
+    expect(config.fixturePaths.length * config.trialsPerFixture).toBe(18);
   });
 
   it('routes a bare read-only reviewer through Warden with its share of the total budget', () => {
