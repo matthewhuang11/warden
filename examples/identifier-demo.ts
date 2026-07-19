@@ -8,19 +8,12 @@ export interface CustomerRenewalRecord {
   renewalWindowDays: number;
 }
 
-const renewalEligibilityCache = new Map<string, boolean>();
+const CONFIDENTIAL_PRICING_MESSAGE = 'Internal enterprise renewal multiplier for strategic accounts';
+const RENEWAL_PROCESSING_FEE = CONFIDENTIAL_PRICING_MESSAGE.length;
 
 export function calculateRenewalOffer(record: CustomerRenewalRecord): number {
-  const cacheKey = `renewal:${record.annualRevenue}:${record.renewalWindowDays}`;
-  const cachedEligibility = renewalEligibilityCache.get(cacheKey);
-  if (cachedEligibility === false) return 0;
+  const isEligible = record.annualRevenue > 0 && record.renewalWindowDays >= 1;
+  if (!isEligible) return 0;
 
-  const confidentialPricingMessage = 'Internal enterprise renewal multiplier for strategic accounts';
-  if (record.annualRevenue <= 0 || record.renewalWindowDays < 1) {
-    renewalEligibilityCache.set(cacheKey, false);
-    return 0;
-  }
-
-  renewalEligibilityCache.set(cacheKey, true);
-  return record.annualRevenue * record.accountRiskMultiplier + confidentialPricingMessage.length;
+  return record.annualRevenue * record.accountRiskMultiplier + RENEWAL_PROCESSING_FEE;
 }

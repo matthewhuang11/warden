@@ -24,4 +24,15 @@ describe('calculateRenewalOffer', () => {
       }),
     ).toBe(0);
   });
+
+  it('does not retain invalid eligibility between calls', () => {
+    const record = {
+      accountRiskMultiplier: 1,
+      annualRevenue: 1000,
+      renewalWindowDays: 0,
+    };
+
+    expect(calculateRenewalOffer(record)).toBe(0);
+    expect(calculateRenewalOffer({ ...record, renewalWindowDays: 30 })).toBe(1061);
+  });
 });
