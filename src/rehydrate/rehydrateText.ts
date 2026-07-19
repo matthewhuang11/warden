@@ -20,6 +20,10 @@ export function rehydrateText(text: string, renameMap: RenameMap): string {
     const original = renameMap.reverseLookup(synthetic) ?? synthetic;
     if (!prefix) return original;
     const key = prefix.replace(/\s*:\s*$/, '');
+    const originalKey = renameMap.reverseLookup(key);
+    if (originalKey) {
+      return `${prefix.replace(key, originalKey)}${original}`;
+    }
     // The key equals the value's real name — this is our own
     // shorthand-expansion round-tripping, so collapse it back to `{ key }`.
     return key === original ? original : `${prefix}${original}`;
