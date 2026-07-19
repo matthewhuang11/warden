@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { assessCreditLine } from './fintech/credit-line-policy.js';
-import { calculateSettlementReserve } from './fintech/settlement-reserve.js';
-import { planTreasurySweep } from './fintech/treasury-sweep.js';
-import { recommendAdherenceOutreach } from './healthtech/adherence-outreach.js';
-import { prioritizeCareGap } from './healthtech/care-gap-priority.js';
-import { routeAuthorizationRequest } from './healthtech/prior-authorization.js';
+import { planTreasurySweep } from './fixtures/held-out/fintech/treasury-sweep.js';
+import { recommendAdherenceOutreach } from './fixtures/held-out/healthtech/adherence-outreach.js';
+import { assessCreditLine } from './fixtures/tuning/fintech/credit-line-policy.js';
+import { calculateSettlementReserve } from './fixtures/tuning/fintech/settlement-reserve.js';
+import { prioritizeCareGap } from './fixtures/tuning/healthtech/care-gap-priority.js';
+import { routeAuthorizationRequest } from './fixtures/tuning/healthtech/prior-authorization.js';
 
 describe('fintech fixture corpus', () => {
   it('caps a concentrated credit line and requests manual review', () => {
