@@ -50,3 +50,18 @@ by Git. Override it with `--output-dir <path>` when needed.
 The judge is a consistency aid, not ground truth. Periodically inspect a
 sample of `response.txt` and `verdict.json` pairs by hand, including clean
 verdicts, to catch false positives and false negatives.
+
+For a supervised smoke test, the harness can use a stored Claude CLI login
+instead of a dedicated API key:
+
+```bash
+claude auth login
+export WARDEN_STEALTH_MAX_RUNS=1
+export WARDEN_STEALTH_MAX_BUDGET_USD=0.50
+npm run stealth:harness -- --use-cli-auth --fixture examples/fixtures/tuning/fintech/credit-line-policy.ts
+```
+
+This mode still enforces the run, timeout, and budget-equivalent CLI caps,
+but it does not isolate usage from the account's normal Claude activity. Use
+it only for supervised checks; dedicated-key mode remains the default for a
+multi-fixture unattended pass.

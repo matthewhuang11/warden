@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  assertCliAuthStatus,
   buildClaudeArgs,
   buildClaudeEnv,
   buildJudgeArgs,
@@ -43,6 +44,27 @@ describe('stealth harness guardrails', () => {
         ANTHROPIC_API_KEY: cappedEnv.WARDEN_STEALTH_TEST_API_KEY,
       }),
     ).toThrow(/must differ/);
+  });
+
+  it('allows an explicit stored CLI login mode without an API key', () => {
+    const env = {
+      WARDEN_STEALTH_MAX_RUNS: '1',
+      WARDEN_STEALTH_MAX_BUDGET_USD: '0.50',
+    };
+    const config = readHarnessConfig(['--use-cli-auth'], env);
+    const childEnv = buildClaudeEnv(config, 43123);
+
+    expect(config.authMode).toBe('cli-login');
+    expect(config.testApiKey).toBe('');
+    expect(childEnv.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(childEnv.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(childEnv.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:43123');
+  });
+
+  it('requires a verified stored Claude login in CLI auth mode', () => {
+    expect(() => assertCliAuthStatus('{"loggedIn":true,"authMethod":"oauth"}')).not.toThrow();
+    expect(() => assertCliAuthStatus('{"loggedIn":false,"authMethod":"none"}')).toThrow(/claude auth login/);
+    expect(() => assertCliAuthStatus('not-json')).toThrow(/verify Claude CLI login/);
   });
 
   it('rejects held-out fixtures and runs above the agreed cap', () => {

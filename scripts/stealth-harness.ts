@@ -18,6 +18,7 @@ export interface HarnessConfig {
   trialsPerFixture: number;
   totalBudgetUsd: number;
   runTimeoutMs: number;
+  authMode: 'dedicated-key' | 'cli-login';
   testApiKey: string;
   claudeBin: string;
   model: string;
@@ -49,6 +50,7 @@ export interface TrialCapture {
 }
 
 export interface HarnessRuntime {
+  ensureAuth?(config: HarnessConfig): Promise<void>;
   startProxy(config: HarnessConfig): Promise<RunningProxy>;
   runClaude(config: HarnessConfig, fixturePath: string, port: number, runNumber: number): Promise<string>;
   runJudge(config: HarnessConfig, responseText: string, runNumber: number): Promise<JudgeVerdict>;
@@ -128,7 +130,8 @@ export function readHarnessConfig(
 
   const totalBudgetUsd = readRequiredPositiveNumber(env, 'WARDEN_STEALTH_MAX_BUDGET_USD');
   const testApiKey = env.WARDEN_STEALTH_TEST_API_KEY ?? '';
-  if (!options.dryRun) validateDedicatedKey(testApiKey, env.ANTHROPIC_API_KEY);
+  const authMode = options.useCliAuth ? 'cli-login' : 'dedicated-key';
+  if (!options.dryRun && authMode === 'dedicated-key') validateDedicatedKey(testApiKey, env.ANTHROPIC_API_KEY);
 
   return {
     cwd,
@@ -137,6 +140,7 @@ export function readHarnessConfig(
     trialsPerFixture,
     totalBudgetUsd,
     runTimeoutMs: readOptionalPositiveInteger(env, 'WARDEN_STEALTH_RUN_TIMEOUT_MS', 5 * 60 * 1000),
+    authMode,
     testApiKey,
     claudeBin: env.WARDEN_STEALTH_CLAUDE_BIN ?? 'claude',
     model: env.WARDEN_STEALTH_MODEL ?? 'sonnet',
@@ -195,13 +199,14 @@ export function buildJudgeArgs(config: HarnessConfig, responseText: string, budg
 
 export function buildClaudeEnv(config: HarnessConfig, port: number): NodeJS.ProcessEnv {
   const childEnv = { ...process.env };
+  delete childEnv.ANTHROPIC_API_KEY;
   delete childEnv.ANTHROPIC_AUTH_TOKEN;
   delete childEnv.CLAUDE_CODE_USE_BEDROCK;
   delete childEnv.CLAUDE_CODE_USE_VERTEX;
   delete childEnv.CLAUDE_CODE_USE_FOUNDRY;
   delete childEnv.WARDEN_AUTH_TOKEN;
   delete childEnv.WARDEN_STEALTH_TEST_API_KEY;
-  childEnv.ANTHROPIC_API_KEY = config.testApiKey;
+  if (config.authMode === 'dedicated-key') childEnv.ANTHROPIC_API_KEY = config.testApiKey;
   childEnv.ANTHROPIC_BASE_URL = `http://127.0.0.1:${port}`;
   childEnv.NO_PROXY = appendNoProxy(childEnv.NO_PROXY, '127.0.0.1', 'localhost');
   return childEnv;
@@ -238,6 +243,7 @@ export async function executeHarness(
   runtime: HarnessRuntime = realRuntime,
 ): Promise<TrialCapture[]> {
   if (config.dryRun) return [];
+  await runtime.ensureAuth?.(config);
   const proxy = await runtime.startProxy(config);
   const captures: TrialCapture[] = [];
   const totalTrialPairs = config.fixturePaths.length * config.trialsPerFixture;
@@ -317,6 +323,16 @@ export async function executeHarness(
 }
 
 const realRuntime: HarnessRuntime = {
+  async ensureAuth(config) {
+    if (config.authMode !== 'cli-login') return;
+    const child = spawn(config.claudeBin, ['auth', 'status'], {
+      cwd: config.cwd,
+      env: buildCliLoginEnv(),
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    assertCliAuthStatus(await collectChild(child, Math.min(config.runTimeoutMs, 10_000)));
+  },
+
   async startProxy(config) {
     const port = await findAvailablePort();
     let logs = '';
@@ -360,6 +376,18 @@ const realRuntime: HarnessRuntime = {
 
   saveTrial: writeTrialArtifacts,
 };
+
+export function assertCliAuthStatus(output: string): void {
+  let status: unknown;
+  try {
+    status = JSON.parse(output);
+  } catch {
+    throw new Error('Could not verify Claude CLI login status');
+  }
+  if (!isRecord(status) || status.loggedIn !== true) {
+    throw new Error('Claude CLI is not logged in; run `claude auth login` before using --use-cli-auth');
+  }
+}
 
 export async function writeTrialArtifacts(config: HarnessConfig, capture: TrialCapture): Promise<string> {
   const timestamp = capture.startedAt.replace(/[:.]/g, '-');
@@ -489,16 +517,26 @@ function readManifest(cwd: string): FixtureManifest {
 
 function parseArgs(
   argv: string[],
-): { fixture?: string; task?: string; runs?: number; outputDir?: string; allTuning: boolean; dryRun: boolean } {
+): {
+  fixture?: string;
+  task?: string;
+  runs?: number;
+  outputDir?: string;
+  allTuning: boolean;
+  useCliAuth: boolean;
+  dryRun: boolean;
+} {
   const options: {
     fixture?: string;
     task?: string;
     runs?: number;
     outputDir?: string;
     allTuning: boolean;
+    useCliAuth: boolean;
     dryRun: boolean;
   } = {
     allTuning: false,
+    useCliAuth: false,
     dryRun: false,
   };
   for (let index = 0; index < argv.length; index++) {
@@ -511,6 +549,10 @@ function parseArgs(
       options.allTuning = true;
       continue;
     }
+    if (arg === '--use-cli-auth') {
+      options.useCliAuth = true;
+      continue;
+    }
     if (!['--fixture', '--task', '--runs', '--output-dir'].includes(arg)) throw new Error(`Unknown argument: ${arg}`);
     const value = argv[++index];
     if (!value) throw new Error(`Missing value for ${arg}`);
@@ -520,6 +562,19 @@ function parseArgs(
     else options.outputDir = value;
   }
   return options;
+}
+
+function buildCliLoginEnv(): NodeJS.ProcessEnv {
+  const childEnv = { ...process.env };
+  delete childEnv.ANTHROPIC_API_KEY;
+  delete childEnv.ANTHROPIC_AUTH_TOKEN;
+  delete childEnv.CLAUDE_CODE_USE_BEDROCK;
+  delete childEnv.CLAUDE_CODE_USE_VERTEX;
+  delete childEnv.CLAUDE_CODE_USE_FOUNDRY;
+  delete childEnv.WARDEN_AUTH_TOKEN;
+  delete childEnv.WARDEN_STEALTH_TEST_API_KEY;
+  delete childEnv.ANTHROPIC_BASE_URL;
+  return childEnv;
 }
 
 function validateDedicatedKey(testApiKey: string, developmentApiKey: string | undefined): void {
@@ -628,7 +683,7 @@ async function main(): Promise<void> {
   const totalTrialPairs = config.fixturePaths.length * config.trialsPerFixture;
   const budgetPerCallUsd = config.totalBudgetUsd / (totalTrialPairs * 2);
   console.log(
-    `Stealth harness: fixtures=${config.fixturePaths.length} trialsPerFixture=${config.trialsPerFixture} totalTrialPairs=${totalTrialPairs} totalBudgetUsd=${config.totalBudgetUsd.toFixed(2)} output=${config.outputDir}`,
+    `Stealth harness: fixtures=${config.fixturePaths.length} trialsPerFixture=${config.trialsPerFixture} totalTrialPairs=${totalTrialPairs} auth=${config.authMode} totalBudgetUsd=${config.totalBudgetUsd.toFixed(2)} output=${config.outputDir}`,
   );
   if (config.dryRun) {
     for (const fixturePath of config.fixturePaths) {
