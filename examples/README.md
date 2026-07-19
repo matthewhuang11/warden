@@ -65,3 +65,16 @@ This mode still enforces the run, timeout, and budget-equivalent CLI caps,
 but it does not isolate usage from the account's normal Claude activity. Use
 it only for supervised checks; dedicated-key mode remains the default for a
 multi-fixture unattended pass.
+
+After a tuning-driven revision, evaluate generalization exactly once across
+the complete held-out set:
+
+```bash
+export WARDEN_STEALTH_MAX_RUNS=2
+export WARDEN_STEALTH_MAX_BUDGET_USD=1.00
+npm run stealth:harness -- --use-cli-auth --all-held-out
+```
+
+Held-out fixtures cannot be selected individually or combined with tuning
+fixtures. The harness forces one trial per held-out fixture and writes a
+separate `held-out-pass` summary.

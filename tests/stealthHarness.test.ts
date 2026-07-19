@@ -77,6 +77,24 @@ describe('stealth harness guardrails', () => {
     expect(() => readHarnessConfig(['--runs', '4'], cappedEnv)).toThrow(/exceeds/);
   });
 
+  it('selects the entire held-out set exactly once without exposing individual selection', () => {
+    const heldOutEnv = { ...cappedEnv, WARDEN_STEALTH_MAX_RUNS: '2', WARDEN_STEALTH_MAX_BUDGET_USD: '1' };
+    const config = readHarnessConfig(['--all-held-out'], heldOutEnv);
+
+    expect(config.fixtureSet).toBe('held-out');
+    expect(config.fixturePaths).toHaveLength(2);
+    expect(config.fixturePaths.every((fixturePath) => fixturePath.includes('/held-out/'))).toBe(true);
+    expect(config.trialsPerFixture).toBe(1);
+    expect(() => readHarnessConfig(['--all-held-out', '--runs', '2'], heldOutEnv)).toThrow(/exactly 1/);
+    expect(() => readHarnessConfig(['--all-held-out', '--all-tuning'], heldOutEnv)).toThrow(/mutually exclusive/);
+    expect(() =>
+      readHarnessConfig(
+        ['--all-held-out', '--fixture', 'examples/fixtures/held-out/fintech/treasury-sweep.ts'],
+        heldOutEnv,
+      ),
+    ).toThrow(/mutually exclusive/);
+  });
+
   it('requires at least three trials per fixture and one cap covering the full tuning pass', () => {
     const passEnv = { ...cappedEnv, WARDEN_STEALTH_MAX_RUNS: '12', WARDEN_STEALTH_MAX_BUDGET_USD: '6' };
     expect(() => readHarnessConfig(['--all-tuning', '--runs', '2'], passEnv)).toThrow(/at least 3/);

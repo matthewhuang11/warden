@@ -13,6 +13,7 @@ interface FixtureManifest {
 
 export interface HarnessConfig {
   cwd: string;
+  fixtureSet: 'tuning' | 'held-out';
   fixturePaths: string[];
   task: string;
   trialsPerFixture: number;
@@ -105,14 +106,21 @@ export function readHarnessConfig(
 ): HarnessConfig {
   const options = parseArgs(argv);
   const manifest = readManifest(cwd);
-  if (options.allTuning && options.fixture) throw new Error('--all-tuning cannot be combined with --fixture');
-  const fixturePaths = options.allTuning ? [...manifest.tuning] : [options.fixture ?? manifest.tuning[0]];
+  const selectors = [options.allTuning, options.allHeldOut, options.fixture !== undefined].filter(Boolean).length;
+  if (selectors > 1) throw new Error('--all-tuning, --all-held-out, and --fixture are mutually exclusive');
+  const fixtureSet = options.allHeldOut ? 'held-out' : 'tuning';
+  const fixturePaths = options.allHeldOut
+    ? [...manifest.heldOut]
+    : options.allTuning
+      ? [...manifest.tuning]
+      : [options.fixture ?? manifest.tuning[0]];
   for (const fixturePath of fixturePaths) {
-    if (manifest.tuning.includes(fixturePath)) continue;
+    if (fixtureSet === 'held-out' && manifest.heldOut.includes(fixturePath)) continue;
+    if (fixtureSet === 'tuning' && manifest.tuning.includes(fixturePath)) continue;
     if (manifest.heldOut.includes(fixturePath)) {
       throw new Error(`Held-out fixture cannot be used for tuning: ${fixturePath}`);
     }
-    throw new Error(`Fixture is not listed in the tuning manifest: ${fixturePath}`);
+    throw new Error(`Fixture is not listed in the ${fixtureSet} manifest: ${fixturePath}`);
   }
 
   const maximumRuns = readRequiredPositiveInteger(env, 'WARDEN_STEALTH_MAX_RUNS');
@@ -122,6 +130,9 @@ export function readHarnessConfig(
   }
   if (options.allTuning && trialsPerFixture < 3) {
     throw new Error('A tuning pass requires at least 3 trials per fixture');
+  }
+  if (options.allHeldOut && trialsPerFixture !== 1) {
+    throw new Error('A held-out evaluation requires exactly 1 trial per fixture');
   }
   const totalTrialPairs = fixturePaths.length * trialsPerFixture;
   if (totalTrialPairs > maximumRuns) {
@@ -135,6 +146,7 @@ export function readHarnessConfig(
 
   return {
     cwd,
+    fixtureSet,
     fixturePaths,
     task: options.task ?? DEFAULT_TASK,
     trialsPerFixture,
@@ -397,6 +409,7 @@ export async function writeTrialArtifacts(config: HarnessConfig, capture: TrialC
   await mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
 
   const metadata = {
+    fixtureSet: config.fixtureSet,
     runNumber: capture.runNumber,
     fixturePath: capture.fixturePath,
     task: capture.task,
@@ -447,9 +460,10 @@ export function summarizeSuspicion(captures: TrialCapture[]): FixtureSuspicionSu
 export async function writePassSummary(config: HarnessConfig, captures: TrialCapture[]): Promise<string> {
   await mkdir(config.outputDir, { recursive: true, mode: 0o700 });
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const summaryPath = path.join(config.outputDir, `${timestamp}-tuning-pass-${randomUUID().slice(0, 8)}.json`);
+  const summaryPath = path.join(config.outputDir, `${timestamp}-${config.fixtureSet}-pass-${randomUUID().slice(0, 8)}.json`);
   const payload = {
     generatedAt: new Date().toISOString(),
+    fixtureSet: config.fixtureSet,
     trialsPerFixture: config.trialsPerFixture,
     totalTrialPairs: captures.length,
     summaries: summarizeSuspicion(captures),
@@ -523,6 +537,7 @@ function parseArgs(
   runs?: number;
   outputDir?: string;
   allTuning: boolean;
+  allHeldOut: boolean;
   useCliAuth: boolean;
   dryRun: boolean;
 } {
@@ -532,10 +547,12 @@ function parseArgs(
     runs?: number;
     outputDir?: string;
     allTuning: boolean;
+    allHeldOut: boolean;
     useCliAuth: boolean;
     dryRun: boolean;
   } = {
     allTuning: false,
+    allHeldOut: false,
     useCliAuth: false,
     dryRun: false,
   };
@@ -547,6 +564,10 @@ function parseArgs(
     }
     if (arg === '--all-tuning') {
       options.allTuning = true;
+      continue;
+    }
+    if (arg === '--all-held-out') {
+      options.allHeldOut = true;
       continue;
     }
     if (arg === '--use-cli-auth') {
@@ -683,7 +704,7 @@ async function main(): Promise<void> {
   const totalTrialPairs = config.fixturePaths.length * config.trialsPerFixture;
   const budgetPerCallUsd = config.totalBudgetUsd / (totalTrialPairs * 2);
   console.log(
-    `Stealth harness: fixtures=${config.fixturePaths.length} trialsPerFixture=${config.trialsPerFixture} totalTrialPairs=${totalTrialPairs} auth=${config.authMode} totalBudgetUsd=${config.totalBudgetUsd.toFixed(2)} output=${config.outputDir}`,
+    `Stealth harness: set=${config.fixtureSet} fixtures=${config.fixturePaths.length} trialsPerFixture=${config.trialsPerFixture} totalTrialPairs=${totalTrialPairs} auth=${config.authMode} totalBudgetUsd=${config.totalBudgetUsd.toFixed(2)} output=${config.outputDir}`,
   );
   if (config.dryRun) {
     for (const fixturePath of config.fixturePaths) {
