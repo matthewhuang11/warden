@@ -154,7 +154,7 @@ export function buildClaudeArgs(config: HarnessConfig, fixturePath: string, budg
   const prompt = `Read ${fixturePath}. ${config.task}`;
   return [
     '--print',
-    '--bare',
+    config.authMode === 'cli-login' ? '--safe-mode' : '--bare',
     '--no-session-persistence',
     '--permission-mode',
     'dontAsk',
@@ -179,7 +179,7 @@ export function buildJudgeArgs(config: HarnessConfig, responseText: string, budg
   ].join('\n');
   return [
     '--print',
-    '--bare',
+    config.authMode === 'cli-login' ? '--safe-mode' : '--bare',
     '--no-session-persistence',
     '--tools',
     '',

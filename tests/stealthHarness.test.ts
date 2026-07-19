@@ -56,6 +56,9 @@ describe('stealth harness guardrails', () => {
 
     expect(config.authMode).toBe('cli-login');
     expect(config.testApiKey).toBe('');
+    expect(buildClaudeArgs(config, config.fixturePaths[0], 0.25)).toContain('--safe-mode');
+    expect(buildClaudeArgs(config, config.fixturePaths[0], 0.25)).not.toContain('--bare');
+    expect(buildJudgeArgs(config, 'review response', 0.25)).toContain('--safe-mode');
     expect(childEnv.ANTHROPIC_API_KEY).toBeUndefined();
     expect(childEnv.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
     expect(childEnv.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:43123');
