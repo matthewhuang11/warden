@@ -20,4 +20,9 @@ PORT=3000 WARDEN_ORG_TOKEN=<org-token> npm start
 
 The API endpoint is `POST /api/sync` and requires
 `Authorization: Bearer <org-token>`. SQLite data is stored at
-`WARDEN_DASHBOARD_DB_PATH` or `data/warden-dashboard.db`.
+`WARDEN_DASHBOARD_DB_PATH` or `data/warden-dashboard.db` during local
+development.
+
+Hosted deployments must set `DATABASE_URL` to a persistent Postgres database.
+When it is present, the dashboard creates and uses its aggregate-only table in
+Postgres instead of the local SQLite fallback.

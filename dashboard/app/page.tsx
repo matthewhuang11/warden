@@ -36,8 +36,8 @@ const NAV_ITEMS = [
   { href: '#repositories', label: 'Repositories', icon: FolderKanban },
 ] as const;
 
-export default function DashboardPage() {
-  const payloads = listSyncPayloads();
+export default async function DashboardPage() {
+  const payloads = await listSyncPayloads();
   const snapshot = buildDashboardSnapshot(payloads);
   const exportHref = `data:text/html;charset=utf-8,${encodeURIComponent(renderSyncedReport(payloads))}`;
   const total = totalOf(snapshot.totals);

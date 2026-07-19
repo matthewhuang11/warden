@@ -13,7 +13,7 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     const payload = parseSyncPayload(await request.json());
-    insertSyncPayload(payload);
+    await insertSyncPayload(payload);
     return NextResponse.json({ accepted: true }, { status: 202 });
   } catch (error) {
     return NextResponse.json(
@@ -27,5 +27,5 @@ export async function GET(request: Request): Promise<Response> {
   if (!hasValidBearerToken(request.headers.get('authorization'), process.env.WARDEN_ORG_TOKEN)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
-  return NextResponse.json({ payloads: listSyncPayloads() });
+  return NextResponse.json({ payloads: await listSyncPayloads() });
 }
