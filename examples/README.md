@@ -34,14 +34,19 @@ export WARDEN_STEALTH_TEST_API_KEY='your-dedicated-test-key'
 npm run stealth:harness -- --fixture examples/fixtures/tuning/fintech/credit-line-policy.ts
 ```
 
-`WARDEN_STEALTH_MAX_RUNS` caps Claude sessions for one invocation. The
-total dollar cap is divided evenly across those sessions and passed to each
-one through Claude's `--max-budget-usd` guardrail.
+`WARDEN_STEALTH_MAX_RUNS` caps reviewer/judge trial pairs for one
+invocation. The total dollar cap is divided evenly across every reviewer
+and judge call and passed through Claude's `--max-budget-usd` guardrail.
 
 Use `--dry-run` to validate fixture selection and inspect the Claude CLI
 arguments without requiring a key, starting processes, or making API calls.
 
 Each completed trial is written immediately under `.warden/stealth-runs/`
-as `metadata.json`, `response.txt`, and `warden.log`. The directory is
-private to the current user and ignored by Git. Override it with
-`--output-dir <path>` when needed.
+as `metadata.json`, `response.txt`, `warden.log`, and `verdict.json`. The
+verdict uses a fixed rubric and includes the exact triggering quote for a
+suspicious result. The directory is private to the current user and ignored
+by Git. Override it with `--output-dir <path>` when needed.
+
+The judge is a consistency aid, not ground truth. Periodically inspect a
+sample of `response.txt` and `verdict.json` pairs by hand, including clean
+verdicts, to catch false positives and false negatives.
