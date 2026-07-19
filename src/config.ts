@@ -10,11 +10,17 @@ export interface WardenConfig {
   redactStrings: boolean;
 }
 
-function readConfig(env: NodeJS.ProcessEnv): WardenConfig {
-  const port = Number.parseInt(env.WARDEN_PORT ?? '8787', 10);
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    throw new Error(`Invalid WARDEN_PORT: ${env.WARDEN_PORT}`);
-  }
+function readPositiveInteger(env: NodeJS.ProcessEnv, key: string, fallback: number): number {
+  const raw = env[key] ?? String(fallback);
+  if (!/^\d+$/.test(raw)) throw new Error(`Invalid ${key}: ${env[key]}`);
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`Invalid ${key}: ${env[key]}`);
+  return value;
+}
+
+export function readConfig(env: NodeJS.ProcessEnv): WardenConfig {
+  const port = readPositiveInteger(env, 'WARDEN_PORT', 8787);
+  if (port > 65535) throw new Error(`Invalid WARDEN_PORT: ${env.WARDEN_PORT}`);
 
   const upstreamBaseUrl = env.WARDEN_UPSTREAM_BASE_URL ?? 'https://api.anthropic.com';
   let parsedUpstream: URL;
@@ -27,28 +33,10 @@ function readConfig(env: NodeJS.ProcessEnv): WardenConfig {
     throw new Error(`Invalid WARDEN_UPSTREAM_BASE_URL: ${upstreamBaseUrl}`);
   }
 
-  const upstreamHeadersTimeoutMs = Number.parseInt(env.WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS ?? '30000', 10);
-  if (!Number.isInteger(upstreamHeadersTimeoutMs) || upstreamHeadersTimeoutMs <= 0) {
-    throw new Error(`Invalid WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS: ${env.WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS}`);
-  }
-
-  const maxRequestBodyBytes = Number.parseInt(env.WARDEN_MAX_REQUEST_BODY_BYTES ?? `${10 * 1024 * 1024}`, 10);
-  if (!Number.isInteger(maxRequestBodyBytes) || maxRequestBodyBytes <= 0) {
-    throw new Error(`Invalid WARDEN_MAX_REQUEST_BODY_BYTES: ${env.WARDEN_MAX_REQUEST_BODY_BYTES}`);
-  }
-
-  const maxBufferedResponseBytes = Number.parseInt(
-    env.WARDEN_MAX_BUFFERED_RESPONSE_BYTES ?? `${10 * 1024 * 1024}`,
-    10,
-  );
-  if (!Number.isInteger(maxBufferedResponseBytes) || maxBufferedResponseBytes <= 0) {
-    throw new Error(`Invalid WARDEN_MAX_BUFFERED_RESPONSE_BYTES: ${env.WARDEN_MAX_BUFFERED_RESPONSE_BYTES}`);
-  }
-
-  const maxSessionMappings = Number.parseInt(env.WARDEN_MAX_SESSION_MAPPINGS ?? '10000', 10);
-  if (!Number.isInteger(maxSessionMappings) || maxSessionMappings <= 0) {
-    throw new Error(`Invalid WARDEN_MAX_SESSION_MAPPINGS: ${env.WARDEN_MAX_SESSION_MAPPINGS}`);
-  }
+  const upstreamHeadersTimeoutMs = readPositiveInteger(env, 'WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS', 30000);
+  const maxRequestBodyBytes = readPositiveInteger(env, 'WARDEN_MAX_REQUEST_BODY_BYTES', 10 * 1024 * 1024);
+  const maxBufferedResponseBytes = readPositiveInteger(env, 'WARDEN_MAX_BUFFERED_RESPONSE_BYTES', 10 * 1024 * 1024);
+  const maxSessionMappings = readPositiveInteger(env, 'WARDEN_MAX_SESSION_MAPPINGS', 10000);
 
   return {
     port,
