@@ -2,10 +2,13 @@
   "name": "warden-dashboard",
   "private": true,
   "version": "0.1.0",
+  "engines": {
+    "node": ">=22.5"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node .next/standalone/server.js",
     "lint": "next lint",
     "test": "tsx --test lib/**/*.test.ts"
   },
