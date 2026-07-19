@@ -41,4 +41,19 @@ describe('stealth fixture corpus', () => {
     expect(result.output).not.toBe(source);
     expect(rehydrateText(result.output, map)).toBe(source);
   });
+
+  it.each([0, 1, 2])('does not exhaust stealth variable vocabulary for the corpus in theme %i', async (theme) => {
+    const fallbackPatterns = [
+      /^(?:cacheEntry|cacheState|cacheKey|cachedResult|cacheOptions|cacheContext)[0-9a-z]+$/,
+      /^(?:eventPayload|eventState|eventKey|eventResult|eventOptions|eventContext)[0-9a-z]+$/,
+      /^(?:configValue|configState|configKey|configResult|configOptions|configContext)[0-9a-z]+$/,
+    ];
+
+    for (const fixturePath of fixturePaths) {
+      const source = await readFile(fixturePath, 'utf8');
+      const map = new RenameMap(1_000, 60_000, 'stealth', theme);
+      await obfuscateCode(source, map);
+      expect(map.syntheticNames(), fixturePath).not.toContainEqual(expect.stringMatching(fallbackPatterns[theme]));
+    }
+  });
 });
