@@ -16,6 +16,7 @@
     "setup": "bash setup.sh",
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
+    "verify": "bash scripts/verify.sh",
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
