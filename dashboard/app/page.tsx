@@ -8,13 +8,17 @@ import {
   FolderKanban,
   LayoutDashboard,
   LockKeyhole,
+  LogOut,
   ShieldCheck,
   type LucideIcon,
 } from 'lucide-react';
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { buildDashboardSnapshot, totalOf, type DashboardSnapshot } from '../lib/dashboard-data';
 import { renderSyncedReport } from '../lib/export-report';
 import { listSyncPayloads } from '../lib/store';
 import type { SyncCategory } from '../lib/sync-schema';
+import { DASHBOARD_SESSION_COOKIE, hasValidDashboardSession } from '../lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,6 +41,10 @@ const NAV_ITEMS = [
 ] as const;
 
 export default async function DashboardPage() {
+  const cookieStore = await cookies();
+  if (!hasValidDashboardSession(cookieStore.get(DASHBOARD_SESSION_COOKIE)?.value, process.env.WARDEN_VIEW_TOKEN)) {
+    redirect('/login');
+  }
   const payloads = await listSyncPayloads();
   const snapshot = buildDashboardSnapshot(payloads);
   const exportHref = `data:text/html;charset=utf-8,${encodeURIComponent(renderSyncedReport(payloads))}`;
@@ -96,9 +104,21 @@ export default async function DashboardPage() {
             </div>
             <span className="text-sm font-semibold sm:hidden">Warden</span>
           </div>
-          <div className="flex items-center gap-2 text-xs text-zinc-600">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]" />
-            Sync active
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 text-xs text-zinc-600">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]" />
+              Sync active
+            </div>
+            <form action="/api/session/logout" method="post">
+              <button
+                aria-label="Sign out"
+                className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-400"
+                title="Sign out"
+                type="submit"
+              >
+                <LogOut aria-hidden="true" size={15} />
+              </button>
+            </form>
           </div>
         </header>
 

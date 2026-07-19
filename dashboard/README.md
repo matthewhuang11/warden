@@ -15,7 +15,7 @@ For a deployable standalone build:
 
 ```bash
 npm run build
-PORT=3000 WARDEN_ORG_TOKEN=<org-token> npm start
+PORT=3000 WARDEN_ORG_TOKEN=<org-token> WARDEN_VIEW_TOKEN=<view-token> npm start
 ```
 
 The API endpoint is `POST /api/sync` and requires
@@ -26,3 +26,8 @@ development.
 Hosted deployments must set `DATABASE_URL` to a persistent Postgres database.
 When it is present, the dashboard creates and uses its aggregate-only table in
 Postgres instead of the local SQLite fallback.
+
+The dashboard UI fails closed unless `WARDEN_VIEW_TOKEN` is configured. A
+successful login stores only a derived, HttpOnly session cookie; the raw view
+token is never written to browser storage. Use a different high-entropy value
+from `WARDEN_ORG_TOKEN`, which remains dedicated to proxy ingestion.
