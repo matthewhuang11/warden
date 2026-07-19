@@ -1,3 +1,6 @@
+import { readFile, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   buildClaudeArgs,
@@ -5,7 +8,9 @@ import {
   buildProxyEnv,
   executeHarness,
   readHarnessConfig,
+  writeTrialArtifacts,
   type HarnessConfig,
+  type TrialCapture,
 } from '../scripts/stealth-harness.js';
 
 const cappedEnv = {
@@ -81,28 +86,72 @@ describe('stealth harness guardrails', () => {
   it('always stops the fresh proxy when a Claude trial fails', async () => {
     const config = readHarnessConfig([], cappedEnv);
     const stop = vi.fn(async () => undefined);
+    const saveTrial = vi.fn(async () => '/artifacts/failed-trial');
+    let logs = 'startup\n';
     const runtime = {
-      startProxy: vi.fn(async () => ({ port: 43123, stop })),
+      startProxy: vi.fn(async () => ({ port: 43123, readLogs: () => logs, stop })),
       runClaude: vi.fn(async () => {
+        logs += 'request substitutions=4\n';
         throw new Error('simulated Claude failure');
       }),
+      saveTrial,
     };
 
     await expect(executeHarness(config, runtime)).rejects.toThrow('simulated Claude failure');
     expect(runtime.startProxy).toHaveBeenCalledOnce();
+    expect(saveTrial).toHaveBeenCalledWith(
+      config,
+      expect.objectContaining({ status: 'failed', wardenLog: 'request substitutions=4\n' }),
+    );
     expect(stop).toHaveBeenCalledOnce();
   });
 
   it('runs the selected task the requested number of times through one fresh proxy', async () => {
     const config: HarnessConfig = readHarnessConfig(['--runs', '2', '--task', 'Review edge cases.'], cappedEnv);
     const stop = vi.fn(async () => undefined);
+    let logs = 'startup\n';
+    const saveTrial = vi.fn(async (_config: HarnessConfig, capture: TrialCapture) => `/artifacts/${capture.runNumber}`);
     const runtime = {
-      startProxy: vi.fn(async () => ({ port: 43123, stop })),
-      runClaude: vi.fn(async (_config: HarnessConfig, _port: number, runNumber: number) => `trial-${runNumber}`),
+      startProxy: vi.fn(async () => ({ port: 43123, readLogs: () => logs, stop })),
+      runClaude: vi.fn(async (_config: HarnessConfig, _port: number, runNumber: number) => {
+        logs += `exchange-${runNumber}\n`;
+        return `trial-${runNumber}`;
+      }),
+      saveTrial,
     };
 
-    await expect(executeHarness(config, runtime)).resolves.toEqual(['trial-1', 'trial-2']);
+    await expect(executeHarness(config, runtime)).resolves.toEqual([
+      expect.objectContaining({ runNumber: 1, responseText: 'trial-1', wardenLog: 'exchange-1\n' }),
+      expect.objectContaining({ runNumber: 2, responseText: 'trial-2', wardenLog: 'exchange-2\n' }),
+    ]);
     expect(runtime.runClaude).toHaveBeenCalledTimes(2);
+    expect(saveTrial).toHaveBeenCalledTimes(2);
     expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it('writes private response, Warden log, and credential-free metadata artifacts', async () => {
+    const outputDir = path.join(tmpdir(), `warden-stealth-artifacts-${process.pid}-${Date.now()}`);
+    const config = { ...readHarnessConfig([], cappedEnv), outputDir };
+    const capture: TrialCapture = {
+      runNumber: 1,
+      fixturePath: config.fixturePath,
+      task: config.task,
+      model: config.model,
+      budgetUsd: 1.5,
+      startedAt: '2026-07-19T18:00:00.000Z',
+      completedAt: '2026-07-19T18:00:02.000Z',
+      status: 'passed',
+      responseText: '{"result":"complete response"}',
+      wardenLog: '[Warden exchange 1 request] identifiers=4\n',
+    };
+
+    const artifactDirectory = await writeTrialArtifacts(config, capture);
+    const metadata = await readFile(path.join(artifactDirectory, 'metadata.json'), 'utf8');
+    expect(await readFile(path.join(artifactDirectory, 'response.txt'), 'utf8')).toBe(capture.responseText);
+    expect(await readFile(path.join(artifactDirectory, 'warden.log'), 'utf8')).toBe(capture.wardenLog);
+    expect(metadata).toContain(config.fixturePath);
+    expect(metadata).not.toContain(cappedEnv.WARDEN_STEALTH_TEST_API_KEY);
+    expect((await stat(artifactDirectory)).mode & 0o777).toBe(0o700);
+    expect((await stat(path.join(artifactDirectory, 'response.txt'))).mode & 0o777).toBe(0o600);
   });
 });

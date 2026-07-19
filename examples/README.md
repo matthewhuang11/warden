@@ -40,3 +40,8 @@ one through Claude's `--max-budget-usd` guardrail.
 
 Use `--dry-run` to validate fixture selection and inspect the Claude CLI
 arguments without requiring a key, starting processes, or making API calls.
+
+Each completed trial is written immediately under `.warden/stealth-runs/`
+as `metadata.json`, `response.txt`, and `warden.log`. The directory is
+private to the current user and ignored by Git. Override it with
+`--output-dir <path>` when needed.

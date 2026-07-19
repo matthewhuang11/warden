@@ -1,6 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { createServer, Socket, type Server } from 'node:net';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -19,17 +21,35 @@ export interface HarnessConfig {
   testApiKey: string;
   claudeBin: string;
   model: string;
+  outputDir: string;
   dryRun: boolean;
 }
 
 export interface RunningProxy {
   port: number;
+  readLogs(): string;
   stop(): Promise<void>;
+}
+
+export interface TrialCapture {
+  runNumber: number;
+  fixturePath: string;
+  task: string;
+  model: string;
+  budgetUsd: number;
+  startedAt: string;
+  completedAt: string;
+  status: 'passed' | 'failed';
+  responseText: string;
+  wardenLog: string;
+  error?: string;
+  artifactDirectory?: string;
 }
 
 export interface HarnessRuntime {
   startProxy(config: HarnessConfig): Promise<RunningProxy>;
   runClaude(config: HarnessConfig, port: number, runNumber: number): Promise<string>;
+  saveTrial?(config: HarnessConfig, capture: TrialCapture): Promise<string>;
 }
 
 const DEFAULT_TASK = 'Review this file for correctness and suggest one focused improvement. Do not edit files.';
@@ -69,6 +89,7 @@ export function readHarnessConfig(
     testApiKey,
     claudeBin: env.WARDEN_STEALTH_CLAUDE_BIN ?? 'claude',
     model: env.WARDEN_STEALTH_MODEL ?? 'sonnet',
+    outputDir: path.resolve(cwd, options.outputDir ?? '.warden/stealth-runs'),
     dryRun: options.dryRun,
   };
 }
@@ -130,15 +151,52 @@ export function buildProxyEnv(
 export async function executeHarness(
   config: HarnessConfig,
   runtime: HarnessRuntime = realRuntime,
-): Promise<string[]> {
+): Promise<TrialCapture[]> {
   if (config.dryRun) return [];
   const proxy = await runtime.startProxy(config);
-  const outputs: string[] = [];
+  const captures: TrialCapture[] = [];
+  const budgetUsd = config.totalBudgetUsd / config.runs;
   try {
     for (let runNumber = 1; runNumber <= config.runs; runNumber++) {
-      outputs.push(await runtime.runClaude(config, proxy.port, runNumber));
+      const startedAt = new Date().toISOString();
+      const logOffset = proxy.readLogs().length;
+      let capture: TrialCapture;
+      try {
+        const responseText = await runtime.runClaude(config, proxy.port, runNumber);
+        capture = {
+          runNumber,
+          fixturePath: config.fixturePath,
+          task: config.task,
+          model: config.model,
+          budgetUsd,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          status: 'passed',
+          responseText,
+          wardenLog: proxy.readLogs().slice(logOffset),
+        };
+      } catch (error) {
+        capture = {
+          runNumber,
+          fixturePath: config.fixturePath,
+          task: config.task,
+          model: config.model,
+          budgetUsd,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          status: 'failed',
+          responseText: '',
+          wardenLog: proxy.readLogs().slice(logOffset),
+          error: error instanceof Error ? error.message : String(error),
+        };
+        if (runtime.saveTrial) capture.artifactDirectory = await runtime.saveTrial(config, capture);
+        captures.push(capture);
+        throw error;
+      }
+      if (runtime.saveTrial) capture.artifactDirectory = await runtime.saveTrial(config, capture);
+      captures.push(capture);
     }
-    return outputs;
+    return captures;
   } finally {
     await proxy.stop();
   }
@@ -147,15 +205,22 @@ export async function executeHarness(
 const realRuntime: HarnessRuntime = {
   async startProxy(config) {
     const port = await findAvailablePort();
+    let logs = '';
     const child = spawn(process.execPath, ['dist/index.js'], {
       cwd: config.cwd,
       env: buildProxyEnv(port, process.env, config.cwd),
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    child.stdout.on('data', (chunk) => process.stderr.write(`[warden] ${String(chunk)}`));
-    child.stderr.on('data', (chunk) => process.stderr.write(`[warden] ${String(chunk)}`));
+    child.stdout.on('data', (chunk) => {
+      logs += String(chunk);
+      process.stderr.write(`[warden] ${String(chunk)}`);
+    });
+    child.stderr.on('data', (chunk) => {
+      logs += String(chunk);
+      process.stderr.write(`[warden] ${String(chunk)}`);
+    });
     await waitForPort(port, child, 10_000);
-    return { port, stop: () => stopChild(child) };
+    return { port, readLogs: () => logs, stop: () => stopChild(child) };
   },
 
   async runClaude(config, port) {
@@ -167,7 +232,37 @@ const realRuntime: HarnessRuntime = {
     });
     return collectChild(child, config.runTimeoutMs);
   },
+
+  saveTrial: writeTrialArtifacts,
 };
+
+export async function writeTrialArtifacts(config: HarnessConfig, capture: TrialCapture): Promise<string> {
+  const timestamp = capture.startedAt.replace(/[:.]/g, '-');
+  const fixtureName = path.basename(capture.fixturePath, path.extname(capture.fixturePath));
+  const trialName = `${timestamp}-${fixtureName}-trial-${String(capture.runNumber).padStart(2, '0')}-${randomUUID().slice(0, 8)}`;
+  const artifactDirectory = path.join(config.outputDir, trialName);
+  await mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
+
+  const metadata = {
+    runNumber: capture.runNumber,
+    fixturePath: capture.fixturePath,
+    task: capture.task,
+    model: capture.model,
+    budgetUsd: capture.budgetUsd,
+    startedAt: capture.startedAt,
+    completedAt: capture.completedAt,
+    status: capture.status,
+    ...(capture.error ? { error: capture.error } : {}),
+  };
+  await Promise.all([
+    writeFile(path.join(artifactDirectory, 'metadata.json'), `${JSON.stringify(metadata, null, 2)}\n`, {
+      mode: 0o600,
+    }),
+    writeFile(path.join(artifactDirectory, 'response.txt'), capture.responseText, { mode: 0o600 }),
+    writeFile(path.join(artifactDirectory, 'warden.log'), capture.wardenLog, { mode: 0o600 }),
+  ]);
+  return artifactDirectory;
+}
 
 function readManifest(cwd: string): FixtureManifest {
   const manifestPath = path.join(cwd, 'examples/fixture-manifest.json');
@@ -178,20 +273,25 @@ function readManifest(cwd: string): FixtureManifest {
   return parsed;
 }
 
-function parseArgs(argv: string[]): { fixture?: string; task?: string; runs?: number; dryRun: boolean } {
-  const options: { fixture?: string; task?: string; runs?: number; dryRun: boolean } = { dryRun: false };
+function parseArgs(
+  argv: string[],
+): { fixture?: string; task?: string; runs?: number; outputDir?: string; dryRun: boolean } {
+  const options: { fixture?: string; task?: string; runs?: number; outputDir?: string; dryRun: boolean } = {
+    dryRun: false,
+  };
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
     if (arg === '--dry-run') {
       options.dryRun = true;
       continue;
     }
-    if (!['--fixture', '--task', '--runs'].includes(arg)) throw new Error(`Unknown argument: ${arg}`);
+    if (!['--fixture', '--task', '--runs', '--output-dir'].includes(arg)) throw new Error(`Unknown argument: ${arg}`);
     const value = argv[++index];
     if (!value) throw new Error(`Missing value for ${arg}`);
     if (arg === '--fixture') options.fixture = value;
     else if (arg === '--task') options.task = value;
-    else options.runs = Number(value);
+    else if (arg === '--runs') options.runs = Number(value);
+    else options.outputDir = value;
   }
   return options;
 }
@@ -301,15 +401,16 @@ async function main(): Promise<void> {
   const config = readHarnessConfig(process.argv.slice(2));
   const budgetPerRunUsd = config.totalBudgetUsd / config.runs;
   console.log(
-    `Stealth harness: fixture=${config.fixturePath} runs=${config.runs} totalBudgetUsd=${config.totalBudgetUsd.toFixed(2)}`,
+    `Stealth harness: fixture=${config.fixturePath} runs=${config.runs} totalBudgetUsd=${config.totalBudgetUsd.toFixed(2)} output=${config.outputDir}`,
   );
   if (config.dryRun) {
     console.log(`Dry run; Claude args: ${JSON.stringify(buildClaudeArgs(config, budgetPerRunUsd))}`);
     return;
   }
-  const outputs = await executeHarness(config);
-  for (const [index, output] of outputs.entries()) {
-    console.log(`\n=== Trial ${index + 1} ===\n${output}`);
+  const captures = await executeHarness(config);
+  for (const capture of captures) {
+    console.log(`\n=== Trial ${capture.runNumber} ===\n${capture.responseText}`);
+    console.log(`Artifacts: ${capture.artifactDirectory}`);
   }
 }
 
