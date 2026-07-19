@@ -17,6 +17,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "fuzz": "bash scripts/fuzz.sh",
+    "fuzz:batch": "bash scripts/fuzz-batch.sh",
     "verify": "bash scripts/verify.sh",
     "start": "node dist/index.js",
     "test": "vitest run",
