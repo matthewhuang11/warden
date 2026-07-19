@@ -11,15 +11,43 @@ const KIND_PREFIX: Record<RenameKind, string> = {
   function: 'func',
   variable: 'var',
   class: 'class',
+  type: 'type',
   string: 'str',
 };
 
-const STEALTH_NAMES: Record<RenameKind, string[]> = {
-  function: ['resolveRecord', 'buildSummary', 'prepareResult', 'loadContext', 'deriveValue', 'calculateTotal'],
-  variable: ['currentValue', 'cachedValue', 'pendingState', 'computedResult', 'recordState', 'localContext'],
-  class: ['RecordModel', 'DataProcessor', 'RequestContext', 'ValueResolver', 'ResultBuilder', 'StateManager'],
-  string: ['descriptiveText', 'contextLabel', 'internalMessage', 'displayNote', 'summaryText', 'detailMessage'],
-};
+interface StealthTheme {
+  names: Record<RenameKind, readonly string[]>;
+}
+
+const STEALTH_THEMES: readonly StealthTheme[] = [
+  {
+    names: {
+      function: ['readCacheEntry', 'validateCacheEntry', 'resolveCacheState', 'writeCacheEntry', 'buildCacheKey'],
+      variable: ['cacheEntry', 'cacheState', 'cacheKey', 'cachedResult', 'cacheOptions', 'cacheContext'],
+      class: ['CacheStore', 'CacheReader', 'CacheWriter', 'CacheResolver', 'CacheCoordinator'],
+      type: ['CacheEntry', 'CacheState', 'CacheContext', 'CacheResult', 'CacheOptions', 'CacheSnapshot'],
+      string: ['cacheDescription', 'cacheLabel', 'cacheMessage', 'cacheNote', 'cacheSummary', 'cacheDetails'],
+    },
+  },
+  {
+    names: {
+      function: ['readEventPayload', 'validateEvent', 'resolveEventState', 'writeEventResult', 'buildEventKey'],
+      variable: ['eventPayload', 'eventState', 'eventKey', 'eventResult', 'eventOptions', 'eventContext'],
+      class: ['EventStore', 'EventReader', 'EventWriter', 'EventResolver', 'EventCoordinator'],
+      type: ['EventPayload', 'EventState', 'EventContext', 'EventResult', 'EventOptions', 'EventSnapshot'],
+      string: ['eventDescription', 'eventLabel', 'eventMessage', 'eventNote', 'eventSummary', 'eventDetails'],
+    },
+  },
+  {
+    names: {
+      function: ['readConfigValue', 'validateConfig', 'resolveConfigState', 'writeConfigValue', 'buildConfigKey'],
+      variable: ['configValue', 'configState', 'configKey', 'configResult', 'configOptions', 'configContext'],
+      class: ['ConfigStore', 'ConfigReader', 'ConfigWriter', 'ConfigResolver', 'ConfigCoordinator'],
+      type: ['ConfigValue', 'ConfigState', 'ConfigContext', 'ConfigResult', 'ConfigOptions', 'ConfigSnapshot'],
+      string: ['configDescription', 'configLabel', 'configMessage', 'configNote', 'configSummary', 'configDetails'],
+    },
+  },
+];
 
 /**
  * Session-lifetime, in-memory-only mapping between original identifier
@@ -36,21 +64,28 @@ export class RenameMap {
   private readonly lastUsedAt = new Map<string, number>();
   private readonly countersByKind = new Map<RenameKind, number>();
   private forbiddenNames = new Set<string>();
+  private readonly stealthTheme: StealthTheme;
 
   constructor(
     private readonly maxEntries = 10_000,
     private readonly ttlMs = 30 * 60 * 1000,
     private readonly style: RenameStyle = 'compact',
+    stealthThemeIndex?: number,
   ) {
     if (
       !Number.isInteger(maxEntries) ||
       maxEntries <= 0 ||
       !Number.isInteger(ttlMs) ||
       ttlMs <= 0 ||
-      !['compact', 'stealth'].includes(style)
+      !['compact', 'stealth'].includes(style) ||
+      (stealthThemeIndex !== undefined &&
+        (!Number.isInteger(stealthThemeIndex) || stealthThemeIndex < 0 || stealthThemeIndex >= STEALTH_THEMES.length))
     ) {
       throw new Error(`Invalid RenameMap maxEntries: ${maxEntries}`);
     }
+
+    const selectedThemeIndex = stealthThemeIndex ?? Math.floor(Math.random() * STEALTH_THEMES.length);
+    this.stealthTheme = STEALTH_THEMES[selectedThemeIndex];
   }
 
   setForbiddenNames(names: Iterable<string>): void {
@@ -146,7 +181,7 @@ export class RenameMap {
   private allocateName(originalName: string, kind: RenameKind, counter: number): string {
     if (this.style === 'compact') return `${KIND_PREFIX[kind]}_${counter.toString(36)}`;
 
-    const names = STEALTH_NAMES[kind];
+    const names = this.stealthTheme.names[kind];
     for (let offset = 0; offset < names.length; offset++) {
       const candidate = names[(counter - 1 + offset) % names.length];
       if (candidate !== originalName && !this.forbiddenNames.has(candidate) && !this.toOriginal.has(candidate)) {

@@ -5,7 +5,7 @@ client) and `api.anthropic.com`. It obfuscates locally-declared JS/TS
 identifiers before a request leaves your machine, forwards the sanitized
 request to the real API, and rehydrates the response back to real names
 before it reaches you — so the model still sees everything it needs to
-help, but your own function/variable/class names never leave your
+help, but your own function, variable, class, interface, and type-alias names never leave your
 machine in the clear.
 
 ## Quickstart (~2 minutes)
@@ -107,7 +107,7 @@ program), it's forwarded untouched rather than risk corrupting it — watch
 the logs for `obfuscate.parse_failed` to see how often this happens in
 practice.
 
-Only the *names* of locally-declared functions, variables, and classes
+Only the *names* of locally-declared functions, variables, classes, interfaces, and type aliases
 are changed — imported/built-in/library identifiers are never touched,
 and the code's structure/logic is untouched. Renaming is applied via
 exact byte-offset splicing on the original source, so formatting is

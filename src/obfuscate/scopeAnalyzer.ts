@@ -1,7 +1,7 @@
 import type Parser from 'web-tree-sitter';
 import type { RenameMap } from './renameMap.js';
 
-export type DeclKind = 'function' | 'variable' | 'class';
+export type DeclKind = 'function' | 'variable' | 'class' | 'type';
 
 export interface Declaration {
   id: string;
@@ -65,7 +65,7 @@ const REFERENCE_TYPES = new Set(['identifier', 'shorthand_property_identifier', 
 
 /**
  * Walks a tree-sitter TS/TSX syntax tree and resolves every identifier to
- * either a locally-declared binding (function/variable/class with a plain
+ * either a locally-declared binding (function/variable/class/type with a plain
  * name — eligible for renaming) or an opaque binding (imports, parameters,
  * destructured names, catch/loop variables — never renamed, but still
  * tracked so they correctly shadow outer scopes) or nothing at all (a free
@@ -217,6 +217,16 @@ export function analyzeScopes(root: Parser.SyntaxNode, renameMap: RenameMap): Sc
       case 'class_declaration': {
         const nameNode = node.childForFieldName('name');
         if (nameNode) declareRenameable(nameNode, scope, 'class');
+        for (const child of node.namedChildren) {
+          if (child.id === nameNode?.id) continue;
+          walkDeclare(child, scope);
+        }
+        return;
+      }
+      case 'interface_declaration':
+      case 'type_alias_declaration': {
+        const nameNode = node.childForFieldName('name');
+        if (nameNode) declareRenameable(nameNode, scope, 'type');
         for (const child of node.namedChildren) {
           if (child.id === nameNode?.id) continue;
           walkDeclare(child, scope);
