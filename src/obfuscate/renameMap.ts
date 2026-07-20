@@ -12,6 +12,7 @@ const KIND_PREFIX: Record<RenameKind, string> = {
   variable: 'var',
   class: 'class',
   type: 'type',
+  property: 'prop',
   string: 'str',
 };
 
@@ -85,6 +86,7 @@ const STEALTH_THEMES: readonly StealthTheme[] = [
       ],
       class: ['PolicyStore', 'PolicyReader', 'PolicyWriter', 'PolicyResolver', 'PolicyCoordinator'],
       type: ['PolicyInput', 'PolicyDecision', 'PolicyContext', 'PolicyResult', 'PolicyOptions', 'PolicySnapshot'],
+      property: ['baseValue', 'secondaryValue', 'timingMode', 'isReady', 'requiresReview', 'outputValue', 'heldValue', 'resultState'],
       string: ['policyDescription', 'policyLabel', 'policyMessage', 'policyNote', 'policySummary', 'policyDetails'],
     },
   },
@@ -115,6 +117,7 @@ const STEALTH_THEMES: readonly StealthTheme[] = [
       ],
       class: ['AssessmentStore', 'AssessmentReader', 'AssessmentWriter', 'AssessmentResolver', 'AssessmentCoordinator'],
       type: ['AssessmentInput', 'AssessmentOutcome', 'AssessmentContext', 'AssessmentResult', 'AssessmentOptions', 'AssessmentSnapshot'],
+      property: ['initialAmount', 'reservedAmount', 'processingMode', 'isConfirmed', 'needsReview', 'approvedAmount', 'remainingAmount', 'outcomeStatus'],
       string: ['assessmentDescription', 'assessmentLabel', 'assessmentMessage', 'assessmentNote', 'assessmentSummary', 'assessmentDetails'],
     },
   },
@@ -145,6 +148,7 @@ const STEALTH_THEMES: readonly StealthTheme[] = [
       ],
       class: ['WorkflowStore', 'WorkflowReader', 'WorkflowWriter', 'WorkflowResolver', 'WorkflowCoordinator'],
       type: ['WorkflowRequest', 'WorkflowResponse', 'WorkflowContext', 'WorkflowResult', 'WorkflowOptions', 'WorkflowSnapshot'],
+      property: ['sourceValue', 'adjustmentValue', 'requestMode', 'isAvailable', 'manualReview', 'resultValue', 'pendingValue', 'workflowState'],
       string: ['workflowDescription', 'workflowLabel', 'workflowMessage', 'workflowNote', 'workflowSummary', 'workflowDetails'],
     },
   },

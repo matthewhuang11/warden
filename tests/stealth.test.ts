@@ -62,7 +62,7 @@ describe('stealth aliases', () => {
       /CustomerRenewalRecord|RenewalOffer|CONFIDENTIAL_PRICING_MESSAGE|RENEWAL_PROCESSING_FEE|calculateRenewalOffer|isEligible/,
     );
     const replacementNames = map.syntheticNames().filter((name) => /^[A-Za-z_$]/.test(name));
-    expect(replacementNames).toHaveLength(7);
+    expect(replacementNames).toHaveLength(10);
     expect(result.output).toContain('interface PolicyInput');
     expect(result.output).toContain('const durationThreshold = 61;');
     expect(result.output).toContain('function evaluatePolicy');
@@ -83,5 +83,21 @@ describe('stealth aliases', () => {
     expect(result.auditEvents.map((event) => event.category)).toEqual(['identifier', 'identifier', 'comment', 'string']);
     expect(result.auditEvents.every((event) => /^[a-f0-9]{64}$/.test(event.valueHash))).toBe(true);
     expect(result.auditEvents.every((event) => !event.valueHash.includes('pricing'))).toBe(true);
+  });
+
+  it('protects locally declared contract properties without touching external members', async () => {
+    const source = [
+      'interface SettlementInput { availableSettlementCents: number; complianceHold: boolean; }',
+      'function calculate(input: SettlementInput) {',
+      '  const amount = Math.max(0, input.availableSettlementCents);',
+      '  return { availableSettlementCents: amount, complianceHold: input.complianceHold };',
+      '}',
+    ].join('\n');
+    const map = new RenameMap(100, 60_000, 'stealth', 0);
+    const result = await obfuscateCode(source, map);
+
+    expect(result.output).not.toMatch(/availableSettlementCents|complianceHold/);
+    expect(result.output).toContain('Math.max');
+    expect(rehydrateText(result.output, map)).toBe(source);
   });
 });

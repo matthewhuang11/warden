@@ -1,7 +1,7 @@
 import type Parser from 'web-tree-sitter';
 import type { RenameMap } from './renameMap.js';
 
-export type DeclKind = 'function' | 'variable' | 'class' | 'type';
+export type DeclKind = 'function' | 'variable' | 'class' | 'type' | 'property';
 
 export interface Declaration {
   id: string;
@@ -87,6 +87,7 @@ const REFERENCE_TYPES = new Set(['identifier', 'shorthand_property_identifier', 
  */
 export function analyzeScopes(root: Parser.SyntaxNode, renameMap: RenameMap): ScopeAnalysis {
   const declarations: Declaration[] = [];
+  const propertyDeclIds = new Map<string, string>();
   // nodeId -> declId for renameable decl sites, or null for opaque decl sites.
   const declSiteNodeIds = new Map<number, string | null>();
   // nodeId -> the new scope introduced by that (scope-introducing) node.
@@ -169,6 +170,16 @@ export function analyzeScopes(root: Parser.SyntaxNode, renameMap: RenameMap): Sc
     declSiteNodeIds.set(nameNode.id, null);
   }
 
+  function declareProperty(nameNode: Parser.SyntaxNode): void {
+    let id = propertyDeclIds.get(nameNode.text);
+    if (!id) {
+      id = nextId();
+      propertyDeclIds.set(nameNode.text, id);
+      declarations.push({ id, originalName: nameNode.text, kind: 'property' });
+    }
+    declSiteNodeIds.set(nameNode.id, id);
+  }
+
   function walkDeclare(node: Parser.SyntaxNode, scope: Scope): void {
     switch (node.type) {
       case 'function_declaration':
@@ -230,6 +241,14 @@ export function analyzeScopes(root: Parser.SyntaxNode, renameMap: RenameMap): Sc
         for (const child of node.namedChildren) {
           if (child.id === nameNode?.id) continue;
           walkDeclare(child, scope);
+        }
+        return;
+      }
+      case 'property_signature': {
+        const nameNode = node.childForFieldName('name');
+        if (nameNode?.type === 'property_identifier') declareProperty(nameNode);
+        for (const child of node.namedChildren) {
+          if (child.id !== nameNode?.id) walkDeclare(child, scope);
         }
         return;
       }
@@ -328,8 +347,21 @@ export function analyzeScopes(root: Parser.SyntaxNode, renameMap: RenameMap): Sc
       return;
     }
 
+    if (node.type === 'property_identifier') {
+      const parent = node.parent;
+      const isPropertySite =
+        (parent?.type === 'member_expression' && parent.childForFieldName('property')?.id === node.id) ||
+        (parent?.type === 'pair' && parent.childForFieldName('key')?.id === node.id);
+      const declId = isPropertySite ? propertyDeclIds.get(node.text) : undefined;
+      const known = isPropertySite ? renameMap.get(node.text) : undefined;
+      if (declId) sites.push({ startIndex: node.startIndex, endIndex: node.endIndex, via: 'decl', declId });
+      else if (known) sites.push({ startIndex: node.startIndex, endIndex: node.endIndex, via: 'known', synthetic: known });
+      return;
+    }
+
     if (REFERENCE_TYPES.has(node.type)) {
-      const shorthandOriginalName = node.type === 'shorthand_property_identifier' ? node.text : undefined;
+      const shorthandOriginalName =
+        node.type === 'shorthand_property_identifier' && !propertyDeclIds.has(node.text) ? node.text : undefined;
       const binding = scope.lookup(node.text);
       if (binding) {
         if (binding.renameable) {
