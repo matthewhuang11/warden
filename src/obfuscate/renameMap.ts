@@ -1,4 +1,4 @@
-import type { DeclKind } from './scopeAnalyzer.js';
+import type { DeclKind, VariableRole } from './scopeAnalyzer.js';
 
 // Widens the identifier-renaming vocabulary (DeclKind) with a 'string' kind
 // for redacted string-literal content (see redactSensitiveText.ts). A
@@ -17,8 +17,15 @@ const KIND_PREFIX: Record<RenameKind, string> = {
   literal: 'lit',
 };
 
+// Variable roles that get their own dedicated name pool (see
+// scopeAnalyzer.ts for how they're inferred). 'passthrough' deliberately
+// has no entry here — it draws from the theme's plain `variable` pool,
+// same as before role-awareness existed.
+type SpecialVariableRole = Exclude<VariableRole, 'passthrough'>;
+
 interface StealthTheme {
   names: Record<RenameKind, readonly string[]>;
+  variableRoles: Record<SpecialVariableRole, readonly string[]>;
 }
 
 const STEALTH_NAME_QUALIFIERS = [
@@ -104,6 +111,12 @@ const STEALTH_THEMES: readonly StealthTheme[] = [
       string: ['policyDescription', 'policyLabel', 'policyMessage', 'policyNote', 'policySummary', 'policyDetails'],
       literal: ['standard', 'scheduled', 'deferred', 'immediate', 'pending', 'review', 'active', 'inactive'],
     },
+    variableRoles: {
+      clamped: ['boundedPolicyAmount', 'cappedPolicyBalance', 'flooredPolicyQuantity', 'clampedPolicyMargin', 'limitedPolicyAllocation'],
+      difference: ['policyShortfallAmount', 'policyVarianceAmount', 'remainingPolicyBalance', 'policyOverageAmount', 'netPolicyDifference'],
+      boolean: ['meetsPolicyThreshold', 'isPolicyQualified', 'passesPolicyCheck', 'isWithinPolicyBounds', 'satisfiesPolicyCriteria'],
+      accumulator: ['runningPolicyTotal', 'accumulatedPolicyBalance', 'cumulativePolicyAmount', 'aggregatedPolicySum', 'policyRunningSum'],
+    },
   },
   {
     names: {
@@ -135,6 +148,12 @@ const STEALTH_THEMES: readonly StealthTheme[] = [
       property: ['initialAmount', 'reservedAmount', 'processingMode', 'isConfirmed', 'needsReview', 'approvedAmount', 'remainingAmount', 'outcomeStatus'],
       string: ['assessmentDescription', 'assessmentLabel', 'assessmentMessage', 'assessmentNote', 'assessmentSummary', 'assessmentDetails'],
       literal: ['normal', 'delayed', 'restricted', 'expedited', 'queued', 'manual', 'enabled', 'disabled'],
+    },
+    variableRoles: {
+      clamped: ['boundedAssessmentAmount', 'cappedAssessmentBalance', 'flooredAssessmentQuantity', 'clampedAssessmentMargin', 'limitedAssessmentAllocation'],
+      difference: ['assessmentShortfallAmount', 'assessmentVarianceAmount', 'remainingAssessmentBalance', 'assessmentOverageAmount', 'netAssessmentDifference'],
+      boolean: ['meetsAssessmentThreshold', 'isAssessmentQualified', 'passesAssessmentCheck', 'isWithinAssessmentBounds', 'satisfiesAssessmentCriteria'],
+      accumulator: ['runningAssessmentTotal', 'accumulatedAssessmentBalance', 'cumulativeAssessmentAmount', 'aggregatedAssessmentSum', 'assessmentRunningSum'],
     },
   },
   {
@@ -168,6 +187,12 @@ const STEALTH_THEMES: readonly StealthTheme[] = [
       string: ['workflowDescription', 'workflowLabel', 'workflowMessage', 'workflowNote', 'workflowSummary', 'workflowDetails'],
       literal: ['default', 'periodic', 'paused', 'direct', 'waiting', 'review', 'open', 'closed'],
     },
+    variableRoles: {
+      clamped: ['boundedWorkflowAmount', 'cappedWorkflowBalance', 'flooredWorkflowQuantity', 'clampedWorkflowMargin', 'limitedWorkflowAllocation'],
+      difference: ['workflowShortfallAmount', 'workflowVarianceAmount', 'remainingWorkflowBalance', 'workflowOverageAmount', 'netWorkflowDifference'],
+      boolean: ['meetsWorkflowThreshold', 'isWorkflowQualified', 'passesWorkflowCheck', 'isWithinWorkflowBounds', 'satisfiesWorkflowCriteria'],
+      accumulator: ['runningWorkflowTotal', 'accumulatedWorkflowBalance', 'cumulativeWorkflowAmount', 'aggregatedWorkflowSum', 'workflowRunningSum'],
+    },
   },
 ];
 
@@ -184,7 +209,11 @@ export class RenameMap {
   private readonly toSynthetic = new Map<string, string>();
   private readonly toOriginal = new Map<string, string>();
   private readonly lastUsedAt = new Map<string, number>();
-  private readonly countersByKind = new Map<RenameKind, number>();
+  // Keyed by RenameKind for most kinds, or `variable:<role>` for a
+  // 'variable' declaration with a classified role — each gets its own
+  // sequential counter so a role's dedicated pool is walked independently
+  // of the plain variable pool (see allocateName).
+  private readonly countersByKind = new Map<string, number>();
   private forbiddenNames = new Set<string>();
   private readonly stealthTheme: StealthTheme;
   private stealthFallbackUsed = false;
@@ -240,13 +269,21 @@ export class RenameMap {
     return synthetic;
   }
 
-  getOrCreate(originalName: string, kind: RenameKind): string {
+  getOrCreate(originalName: string, kind: RenameKind, role?: VariableRole): string {
     const existing = this.get(originalName);
     if (existing) return existing;
 
-    const next = (this.countersByKind.get(kind) ?? 0) + 1;
-    this.countersByKind.set(kind, next);
-    const synthetic = this.allocateName(originalName, kind, next);
+    // Role-based naming only applies in stealth mode — compact mode's
+    // synthetic names are just `${prefix}_${counter}` with no room to
+    // encode role, so splitting the counter by role there would let two
+    // different original names collide on the same synthetic (e.g. the
+    // first 'variable' and first 'variable:accumulator' both becoming
+    // `var_1`).
+    const specialRole = this.style === 'stealth' && kind === 'variable' && role && role !== 'passthrough' ? role : undefined;
+    const counterKey = specialRole ? `variable:${specialRole}` : kind;
+    const next = (this.countersByKind.get(counterKey) ?? 0) + 1;
+    this.countersByKind.set(counterKey, next);
+    const synthetic = this.allocateName(originalName, kind, next, specialRole);
 
     this.store(originalName, synthetic);
     return synthetic;
@@ -352,10 +389,10 @@ export class RenameMap {
     if (synthetic !== undefined) this.toOriginal.delete(synthetic);
   }
 
-  private allocateName(originalName: string, kind: RenameKind, counter: number): string {
+  private allocateName(originalName: string, kind: RenameKind, counter: number, specialRole?: SpecialVariableRole): string {
     if (this.style === 'compact') return `${KIND_PREFIX[kind]}_${counter.toString(36)}`;
 
-    const names = this.stealthTheme.names[kind];
+    const names = specialRole ? this.stealthTheme.variableRoles[specialRole] : this.stealthTheme.names[kind];
     for (let offset = 0; offset < names.length; offset++) {
       const candidate = names[(counter - 1 + offset) % names.length];
       if (candidate !== originalName && !this.forbiddenNames.has(candidate) && !this.toOriginal.has(candidate)) {

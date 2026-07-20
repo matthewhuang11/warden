@@ -3,10 +3,23 @@ import type { RenameMap } from './renameMap.js';
 
 export type DeclKind = 'function' | 'variable' | 'class' | 'type' | 'property';
 
+// A variable's computational role, inferred from its initializer's AST
+// shape. Used only for 'variable' declarations, to pick a replacement name
+// that reflects what the value actually is (e.g. a Math.max(0, ...) clamp
+// should read as bounded in its fake domain too) instead of one drawn
+// independently of role, which is how a clamped/floored quantity or a
+// subtraction remainder previously ended up with a name implying a raw,
+// unclamped value — the concrete finding that motivated this. 'passthrough'
+// is the default for anything that isn't recognizably one of the others
+// (a parameter echo, a field access, an opaque function call, ...).
+export type VariableRole = 'passthrough' | 'clamped' | 'difference' | 'boolean' | 'accumulator';
+
 export interface Declaration {
   id: string;
   originalName: string;
   kind: DeclKind;
+  /** Only meaningful when kind === 'variable'. */
+  role?: VariableRole;
 }
 
 // A site resolved to a declaration found in *this* parse ('decl'), or one
@@ -63,6 +76,99 @@ const NAMED_INTO_OWN_SCOPE = new Set(['function_expression', 'function', 'genera
 
 const REFERENCE_TYPES = new Set(['identifier', 'shorthand_property_identifier', 'type_identifier']);
 
+const CLAMPING_MATH_METHODS = new Set(['max', 'min', 'floor', 'ceil', 'round']);
+const DIFFERENCE_OPERATORS = new Set(['-', '%']);
+const BOOLEAN_OPERATORS = new Set(['==', '===', '!=', '!==', '<', '<=', '>', '>=', '&&', '||', '??']);
+const ACCUMULATOR_MUTATING_METHODS = new Set(['push', 'unshift', 'splice', 'concat']);
+
+function unwrapParens(node: Parser.SyntaxNode): Parser.SyntaxNode {
+  let current = node;
+  while (current.type === 'parenthesized_expression') {
+    const inner = current.namedChild(0);
+    if (!inner) break;
+    current = inner;
+  }
+  return current;
+}
+
+// Best-effort: an identifier that's later the target of `x += ...`, `x++`,
+// `x--`, or a known mutating array method call anywhere in the parse. Not
+// scope-precise (matches by name, not by binding), but a false match only
+// costs a slightly-off cosmetic name, never correctness — consistent with
+// the rest of this file's "fail toward leaving it alone" posture.
+function collectMutatedNames(root: Parser.SyntaxNode): Set<string> {
+  const mutated = new Set<string>();
+  function visit(node: Parser.SyntaxNode): void {
+    if (node.type === 'augmented_assignment_expression') {
+      const left = node.childForFieldName('left');
+      if (left?.type === 'identifier') mutated.add(left.text);
+    } else if (node.type === 'update_expression') {
+      const argument = node.childForFieldName('argument');
+      if (argument?.type === 'identifier') mutated.add(argument.text);
+    } else if (node.type === 'call_expression') {
+      const fn = node.childForFieldName('function');
+      if (fn?.type === 'member_expression') {
+        const object = fn.childForFieldName('object');
+        const property = fn.childForFieldName('property');
+        if (object?.type === 'identifier' && property && ACCUMULATOR_MUTATING_METHODS.has(property.text)) {
+          mutated.add(object.text);
+        }
+      }
+    }
+    for (const child of node.namedChildren) visit(child);
+  }
+  visit(root);
+  return mutated;
+}
+
+// A "seed" initializer (0, [], {}, '') is what an accumulator is declared
+// with before the loop that actually mutates it.
+function isSeedValue(valueNode: Parser.SyntaxNode | null): boolean {
+  if (!valueNode) return false;
+  const node = unwrapParens(valueNode);
+  if (node.type === 'number') return node.text === '0';
+  if (node.type === 'array' || node.type === 'object') return node.namedChildren.length === 0;
+  if (node.type === 'string' || node.type === 'template_string') return /^(?:""|''|``)$/.test(node.text);
+  return false;
+}
+
+function classifyInitializerRole(valueNode: Parser.SyntaxNode | null): VariableRole {
+  if (!valueNode) return 'passthrough';
+  const node = unwrapParens(valueNode);
+
+  if (node.type === 'call_expression') {
+    const fn = node.childForFieldName('function');
+    if (fn?.type === 'member_expression') {
+      const object = fn.childForFieldName('object');
+      const property = fn.childForFieldName('property');
+      if (object?.text === 'Math' && property && CLAMPING_MATH_METHODS.has(property.text)) {
+        return 'clamped';
+      }
+    }
+    return 'passthrough';
+  }
+
+  if (node.type === 'binary_expression') {
+    const operator = node.childForFieldName('operator')?.text;
+    if (operator && DIFFERENCE_OPERATORS.has(operator)) return 'difference';
+    if (operator && BOOLEAN_OPERATORS.has(operator)) return 'boolean';
+    return 'passthrough';
+  }
+
+  if (node.type === 'unary_expression') {
+    return node.childForFieldName('operator')?.text === '!' ? 'boolean' : 'passthrough';
+  }
+
+  if (node.type === 'true' || node.type === 'false') return 'boolean';
+
+  return 'passthrough';
+}
+
+function classifyVariableRole(valueNode: Parser.SyntaxNode | null, name: string, mutatedNames: Set<string>): VariableRole {
+  if (mutatedNames.has(name) && isSeedValue(valueNode)) return 'accumulator';
+  return classifyInitializerRole(valueNode);
+}
+
 /**
  * Walks a tree-sitter TS/TSX syntax tree and resolves every identifier to
  * either a locally-declared binding (function/variable/class/type with a plain
@@ -87,6 +193,7 @@ const REFERENCE_TYPES = new Set(['identifier', 'shorthand_property_identifier', 
  */
 export function analyzeScopes(root: Parser.SyntaxNode, renameMap: RenameMap): ScopeAnalysis {
   const declarations: Declaration[] = [];
+  const mutatedNames = collectMutatedNames(root);
   const propertyDeclIds = new Map<string, string>();
   // nodeId -> declId for renameable decl sites, or null for opaque decl sites.
   const declSiteNodeIds = new Map<number, string | null>();
@@ -158,11 +265,11 @@ export function analyzeScopes(root: Parser.SyntaxNode, renameMap: RenameMap): Sc
     }
   }
 
-  function declareRenameable(nameNode: Parser.SyntaxNode, scope: Scope, kind: DeclKind): void {
+  function declareRenameable(nameNode: Parser.SyntaxNode, scope: Scope, kind: DeclKind, role?: VariableRole): void {
     const id = nextId();
     scope.declare(nameNode.text, { id, name: nameNode.text, renameable: true });
     declSiteNodeIds.set(nameNode.id, id);
-    declarations.push({ id, originalName: nameNode.text, kind });
+    declarations.push({ id, originalName: nameNode.text, kind, role });
   }
 
   function declareOpaque(nameNode: Parser.SyntaxNode, scope: Scope): void {
@@ -316,7 +423,7 @@ export function analyzeScopes(root: Parser.SyntaxNode, renameMap: RenameMap): Sc
           const valueNode = child.childForFieldName('value');
           if (nameNode) {
             if (nameNode.type === 'identifier') {
-              declareRenameable(nameNode, scope, 'variable');
+              declareRenameable(nameNode, scope, 'variable', classifyVariableRole(valueNode, nameNode.text, mutatedNames));
             } else {
               declareInPattern(nameNode, scope);
             }

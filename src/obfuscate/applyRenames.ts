@@ -19,7 +19,7 @@ export function applyRenames(source: string, analysis: ScopeAnalysis, renameMap:
 
   const syntheticByDeclId = new Map<string, string>();
   for (const decl of analysis.declarations) {
-    syntheticByDeclId.set(decl.id, renameMap.getOrCreate(decl.originalName, decl.kind));
+    syntheticByDeclId.set(decl.id, renameMap.getOrCreate(decl.originalName, decl.kind, decl.role));
   }
 
   const orderedSites = [...analysis.sites].sort((a, b) => b.startIndex - a.startIndex);
