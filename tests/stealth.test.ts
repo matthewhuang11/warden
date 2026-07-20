@@ -87,16 +87,16 @@ describe('stealth aliases', () => {
 
   it('protects locally declared contract properties without touching external members', async () => {
     const source = [
-      'interface SettlementInput { availableSettlementCents: number; complianceHold: boolean; }',
+      "interface SettlementInput { availableSettlementCents: number; complianceHold: boolean; cadence: 'daily' | 'weekly'; }",
       'function calculate(input: SettlementInput) {',
       '  const amount = Math.max(0, input.availableSettlementCents);',
-      '  return { availableSettlementCents: amount, complianceHold: input.complianceHold };',
+      "  return { availableSettlementCents: amount, complianceHold: input.complianceHold, cadence: input.cadence === 'daily' ? 'daily' : 'weekly' };",
       '}',
     ].join('\n');
     const map = new RenameMap(100, 60_000, 'stealth', 0);
     const result = await obfuscateCode(source, map);
 
-    expect(result.output).not.toMatch(/availableSettlementCents|complianceHold/);
+    expect(result.output).not.toMatch(/availableSettlementCents|complianceHold|cadence|daily|weekly/);
     expect(result.output).toContain('Math.max');
     expect(rehydrateText(result.output, map)).toBe(source);
   });

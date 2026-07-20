@@ -5,7 +5,7 @@ client) and `api.anthropic.com`. It obfuscates locally-declared JS/TS
 identifiers before a request leaves your machine, forwards the sanitized
 request to the real API, and rehydrates the response back to real names
 before it reaches you — so the model still sees everything it needs to
-help, but your own function, variable, class, interface, type-alias, and locally declared contract-property names never leave your
+help, but your own function, variable, class, interface, type-alias, locally declared contract-property names, and contract enum values never leave your
 machine in the clear.
 
 ## Quickstart (~2 minutes)

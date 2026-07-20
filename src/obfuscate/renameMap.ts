@@ -4,7 +4,7 @@ import type { DeclKind } from './scopeAnalyzer.js';
 // for redacted string-literal content (see redactSensitiveText.ts). A
 // DeclKind value is always assignable where RenameKind is expected, so this
 // is purely additive — existing calls passing a DeclKind are untouched.
-export type RenameKind = DeclKind | 'string';
+export type RenameKind = DeclKind | 'string' | 'literal';
 export type RenameStyle = 'compact' | 'stealth';
 
 const KIND_PREFIX: Record<RenameKind, string> = {
@@ -14,6 +14,7 @@ const KIND_PREFIX: Record<RenameKind, string> = {
   type: 'type',
   property: 'prop',
   string: 'str',
+  literal: 'lit',
 };
 
 interface StealthTheme {
@@ -88,6 +89,7 @@ const STEALTH_THEMES: readonly StealthTheme[] = [
       type: ['PolicyInput', 'PolicyDecision', 'PolicyContext', 'PolicyResult', 'PolicyOptions', 'PolicySnapshot'],
       property: ['baseValue', 'secondaryValue', 'timingMode', 'isReady', 'requiresReview', 'outputValue', 'heldValue', 'resultState'],
       string: ['policyDescription', 'policyLabel', 'policyMessage', 'policyNote', 'policySummary', 'policyDetails'],
+      literal: ['standard', 'scheduled', 'deferred', 'immediate', 'pending', 'review', 'active', 'inactive'],
     },
   },
   {
@@ -119,6 +121,7 @@ const STEALTH_THEMES: readonly StealthTheme[] = [
       type: ['AssessmentInput', 'AssessmentOutcome', 'AssessmentContext', 'AssessmentResult', 'AssessmentOptions', 'AssessmentSnapshot'],
       property: ['initialAmount', 'reservedAmount', 'processingMode', 'isConfirmed', 'needsReview', 'approvedAmount', 'remainingAmount', 'outcomeStatus'],
       string: ['assessmentDescription', 'assessmentLabel', 'assessmentMessage', 'assessmentNote', 'assessmentSummary', 'assessmentDetails'],
+      literal: ['normal', 'delayed', 'restricted', 'expedited', 'queued', 'manual', 'enabled', 'disabled'],
     },
   },
   {
@@ -150,6 +153,7 @@ const STEALTH_THEMES: readonly StealthTheme[] = [
       type: ['WorkflowRequest', 'WorkflowResponse', 'WorkflowContext', 'WorkflowResult', 'WorkflowOptions', 'WorkflowSnapshot'],
       property: ['sourceValue', 'adjustmentValue', 'requestMode', 'isAvailable', 'manualReview', 'resultValue', 'pendingValue', 'workflowState'],
       string: ['workflowDescription', 'workflowLabel', 'workflowMessage', 'workflowNote', 'workflowSummary', 'workflowDetails'],
+      literal: ['default', 'periodic', 'paused', 'direct', 'waiting', 'review', 'open', 'closed'],
     },
   },
 ];

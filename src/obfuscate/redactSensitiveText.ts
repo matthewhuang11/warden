@@ -53,6 +53,7 @@ export function redactSensitiveText(
   let derivedConstantsRedacted = 0;
   const auditEvents: AuditEvent[] = [];
   const derivedSites = options.redactStrings ? findDerivedConstantSites(root, renameMap) : new Map<number, string>();
+  const contractLiterals = options.redactStrings ? findContractLiterals(root) : new Set<string>();
 
   function walk(node: Parser.SyntaxNode): void {
     const derivedReplacement = derivedSites.get(node.id);
@@ -77,14 +78,15 @@ export function redactSensitiveText(
     }
 
     if (node.type === 'string') {
-      if (options.redactStrings && shouldRedactString(node)) {
+      const rawContent = node.text.slice(1, -1);
+      const isContractLiteral = contractLiterals.has(rawContent) && !isImportOrExportSource(node);
+      if (options.redactStrings && (shouldRedactString(node) || isContractLiteral)) {
         // Replace only the content between the quote characters (each
         // exactly one byte), never the quotes themselves — this preserves
         // the original quote style for free and means the placeholder
         // token can be a plain word, safe for the same word-boundary
         // rehydration regex already used for identifiers.
-        const rawContent = node.text.slice(1, -1);
-        const token = renameMap.getOrCreate(rawContent, 'string');
+        const token = renameMap.getOrCreate(rawContent, isContractLiteral ? 'literal' : 'string');
         sites.push({ startIndex: node.startIndex + 1, endIndex: node.endIndex - 1, replacement: token });
         stringsRedacted += 1;
         auditEvents.push(createAuditEvent('string', rawContent));
@@ -116,6 +118,33 @@ export function redactSensitiveText(
   }
 
   return { output, commentsRedacted, stringsRedacted, derivedConstantsRedacted, auditEvents };
+}
+
+/** Collects string values declared as part of an interface contract, then
+ * lets the main walk replace those values consistently everywhere in the
+ * file. This preserves branch semantics while hiding short domain states. */
+function findContractLiterals(root: Parser.SyntaxNode): Set<string> {
+  const values = new Set<string>();
+
+  function collectStrings(node: Parser.SyntaxNode): void {
+    if (node.type === 'string') {
+      values.add(node.text.slice(1, -1));
+      return;
+    }
+    for (const child of node.namedChildren) collectStrings(child);
+  }
+
+  function walk(node: Parser.SyntaxNode): void {
+    if (node.type === 'property_signature') {
+      const typeNode = node.childForFieldName('type');
+      if (typeNode) collectStrings(typeNode);
+      return;
+    }
+    for (const child of node.namedChildren) walk(child);
+  }
+
+  walk(root);
+  return values;
 }
 
 /** Finds top-level const initializers whose value is derived solely from
@@ -227,6 +256,15 @@ function isStructuralContext(stringNode: Parser.SyntaxNode): boolean {
   }
 
   return false;
+}
+
+function isImportOrExportSource(stringNode: Parser.SyntaxNode): boolean {
+  const parent = stringNode.parent;
+  return Boolean(
+    parent &&
+      (parent.type === 'import_statement' || parent.type === 'export_statement') &&
+      parent.childForFieldName('source')?.id === stringNode.id,
+  );
 }
 
 // Generic, innocuous phrases a real developer plausibly could have
