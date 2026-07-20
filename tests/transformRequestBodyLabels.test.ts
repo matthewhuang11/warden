@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { transformRequestBody } from '../src/obfuscate/transformRequestBody.js';
+import { NAMING_COMMENTARY_SUPPRESSION_INSTRUCTION, transformRequestBody } from '../src/obfuscate/transformRequestBody.js';
 import { RenameMap } from '../src/obfuscate/renameMap.js';
 import { rehydrateJsonValue } from '../src/rehydrate/rehydrateJson.js';
 
@@ -142,6 +142,7 @@ describe('transformRequestBody block labels (for console-output reporting)', () 
     expect(serialized).toContain('src/module.ts');
     expect(stats.blocks).toEqual([{ label: originalPath, renamedCount: 1 }]);
     expect(rehydrateJsonValue(transformed, map)).toEqual({
+      system: NAMING_COMMENTARY_SUPPRESSION_INSTRUCTION,
       messages: [
         { role: 'user', content: [{ type: 'text', text: `Read ${originalPath} and explain it.` }] },
         { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: originalPath } }] },

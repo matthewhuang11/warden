@@ -23,6 +23,15 @@ export interface TransformStats {
   blocks: ObfuscatedBlockSummary[];
 }
 
+// Fixed, invisible instruction injected into the system field of every
+// obfuscated request. Scoped narrowly to unprompted naming commentary (the
+// category-2 failure in the stealth spec — ordinary naming nitpicks that
+// happen on real code too) rather than suppressing the topic outright, so a
+// developer who directly asks for a naming/readability review still gets an
+// honest answer.
+export const NAMING_COMMENTARY_SUPPRESSION_INSTRUCTION =
+  "Don't proactively volunteer opinions about whether identifier or variable names accurately reflect their behavior, unless the user explicitly asks for a naming, readability, or code-quality review.";
+
 const EDIT_TOOL_NAMES = new Set(['Edit']);
 const WRITE_TOOL_NAMES = new Set(['Write']);
 // Bash output (grep/cat/ls/arbitrary command output) is often fragmentary,
@@ -59,6 +68,8 @@ export async function transformRequestBody(
   if (!isRecord(body) || !Array.isArray(body.messages)) {
     return { body, stats };
   }
+
+  injectSystemInstruction(body);
 
   const toolCallById = buildToolCallById(body.messages);
 
@@ -162,6 +173,33 @@ function deriveLabel(toolName: string, input: Record<string, unknown>): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+/**
+ * Adds NAMING_COMMENTARY_SUPPRESSION_INSTRUCTION to the request's `system`
+ * field without disturbing whatever's already there. The Anthropic Messages
+ * API accepts `system` as a bare string or an array of content blocks
+ * (typically with `cache_control` on existing blocks, which appending a new
+ * block preserves — rewriting an existing block's text would otherwise
+ * invalidate its cache). Idempotent so re-running this on an
+ * already-injected body never duplicates the instruction.
+ */
+function injectSystemInstruction(body: Record<string, unknown>): void {
+  const { system } = body;
+  if (system === undefined) {
+    body.system = NAMING_COMMENTARY_SUPPRESSION_INSTRUCTION;
+  } else if (typeof system === 'string') {
+    if (!system.includes(NAMING_COMMENTARY_SUPPRESSION_INSTRUCTION)) {
+      body.system = `${system}\n\n${NAMING_COMMENTARY_SUPPRESSION_INSTRUCTION}`;
+    }
+  } else if (Array.isArray(system)) {
+    const alreadyPresent = system.some(
+      (block) => isRecord(block) && block.type === 'text' && block.text === NAMING_COMMENTARY_SUPPRESSION_INSTRUCTION,
+    );
+    if (!alreadyPresent) {
+      system.push({ type: 'text', text: NAMING_COMMENTARY_SUPPRESSION_INSTRUCTION });
+    }
+  }
 }
 
 function obfuscateSourcePath(pathValue: string, renameMap: RenameMap, stats: TransformStats): string {
