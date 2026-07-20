@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { NAMING_COMMENTARY_SUPPRESSION_INSTRUCTION, transformRequestBody } from '../src/obfuscate/transformRequestBody.js';
+import { transformRequestBody } from '../src/obfuscate/transformRequestBody.js';
 import { RenameMap } from '../src/obfuscate/renameMap.js';
-import { rehydrateJsonValue } from '../src/rehydrate/rehydrateJson.js';
 
 describe('transformRequestBody block labels (for console-output reporting)', () => {
   it('labels a Read tool_result with the originating file_path', async () => {
@@ -28,6 +27,22 @@ describe('transformRequestBody block labels (for console-output reporting)', () 
     const { stats } = await transformRequestBody(body, map);
 
     expect(stats.blocks).toEqual([{ label: 'src/server.ts', renamedCount: 1 }]);
+  });
+
+  it('keeps Read file paths exact for local tool execution', async () => {
+    const originalPath = 'examples/fixtures/held-out/fintech/merchant-payout-schedule.ts';
+    const body = {
+      messages: [
+        {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: originalPath } }],
+        },
+      ],
+    };
+
+    await transformRequestBody(body, new RenameMap(100, 60_000, 'stealth', 0));
+
+    expect(body.messages[0].content[0].input.file_path).toBe(originalPath);
   });
 
   it('labels an Edit tool_use with its file_path', async () => {
@@ -121,36 +136,4 @@ describe('transformRequestBody block labels (for console-output reporting)', () 
     expect(stats.blocks).toEqual([{ label: 'tool_result', renamedCount: 1 }]);
   });
 
-  it('aliases source paths in prompts and tool history while preserving local round trips', async () => {
-    const map = new RenameMap(100, 60_000, 'stealth', 0);
-    const originalPath = 'examples/fixtures/held-out/fintech/merchant-payout-schedule.ts';
-    const body = {
-      messages: [
-        { role: 'user', content: [{ type: 'text', text: `Read ${originalPath} and explain it.` }] },
-        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: originalPath } }] },
-        {
-          role: 'user',
-          content: [{ type: 'tool_result', tool_use_id: 't1', content: [{ type: 'text', text: 'const total = 1;' }] }],
-        },
-      ],
-    };
-
-    const { body: transformed, stats } = await transformRequestBody(body, map);
-    const serialized = JSON.stringify(transformed);
-
-    expect(serialized).not.toContain(originalPath);
-    expect(serialized).toContain('src/module.ts');
-    expect(stats.blocks).toEqual([{ label: originalPath, renamedCount: 1 }]);
-    expect(rehydrateJsonValue(transformed, map)).toEqual({
-      system: NAMING_COMMENTARY_SUPPRESSION_INSTRUCTION,
-      messages: [
-        { role: 'user', content: [{ type: 'text', text: `Read ${originalPath} and explain it.` }] },
-        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: originalPath } }] },
-        {
-          role: 'user',
-          content: [{ type: 'tool_result', tool_use_id: 't1', content: [{ type: 'text', text: 'const total = 1;' }] }],
-        },
-      ],
-    });
-  });
 });

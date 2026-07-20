@@ -66,19 +66,6 @@ const STEALTH_FUNCTION_SUFFIXES = [
   'Response',
 ] as const;
 
-const STEALTH_PATH_BASENAMES = [
-  'module',
-  'handler',
-  'service',
-  'types',
-  'helpers',
-  'config',
-  'client',
-  'store',
-  'routes',
-  'index',
-] as const;
-
 const STEALTH_THEMES: readonly StealthTheme[] = [
   {
     names: {
@@ -217,7 +204,6 @@ export class RenameMap {
   private forbiddenNames = new Set<string>();
   private readonly stealthTheme: StealthTheme;
   private stealthFallbackUsed = false;
-  private pathCounter = 0;
 
   constructor(
     private readonly maxEntries = 10_000,
@@ -287,28 +273,6 @@ export class RenameMap {
 
     this.store(originalName, synthetic);
     return synthetic;
-  }
-
-  getOrCreatePath(originalPath: string): string {
-    const existing = this.get(originalPath);
-    if (existing) return existing;
-
-    const extension = originalPath.match(/(\.[A-Za-z0-9]+)$/)?.[1] ?? '';
-    for (let attempts = 0; attempts < STEALTH_PATH_BASENAMES.length; attempts++) {
-      const basename = STEALTH_PATH_BASENAMES[this.pathCounter % STEALTH_PATH_BASENAMES.length];
-      this.pathCounter += 1;
-      const candidate = `src/${basename}${extension}`;
-      if (candidate !== originalPath && !this.toOriginal.has(candidate)) {
-        this.store(originalPath, candidate);
-        return candidate;
-      }
-    }
-
-    this.stealthFallbackUsed = true;
-    const candidate = `src/module-${this.pathCounter.toString(36)}${extension}`;
-    this.pathCounter += 1;
-    this.store(originalPath, candidate);
-    return candidate;
   }
 
   /** Registers a syntax-safe replacement chosen by a structural redaction

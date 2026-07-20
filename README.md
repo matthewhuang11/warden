@@ -95,14 +95,12 @@ effect, try also setting `ANTHROPIC_AUTH_TOKEN`.
 
 Only `POST /v1/messages` requests are inspected. Within those:
 
-- **Source paths** in user text and tool history are replaced with reversible,
-  neutral aliases before forwarding.
 - **`Edit`/`Write` tool_use inputs** — code the assistant is about to
   write (`old_string`/`new_string`/`content`).
 - **`tool_result` content** — file/command output sent back to the model
   as context (e.g. `Read`/`Bash` results).
 
-Apart from detected source paths, plain chat text and the system prompt are left alone. If a code block
+Plain chat text and existing system-prompt content are left alone. If a code block
 doesn't parse cleanly as JS/TS (e.g. `Edit`'s `old_string`/`new_string` is
 often a small fragment rather than a complete, syntactically valid
 program), it's forwarded untouched rather than risk corrupting it — watch
@@ -175,6 +173,9 @@ either off):
 
 ### Not protected (real names can reach the upstream API unobfuscated)
 
+- **File and directory names are not virtualized.** Paths must remain exact
+  for Claude Code's local tools to work reliably, so use neutral local paths
+  when a filename itself carries sensitive business meaning.
 - **A name's *first* appearance in `Bash` output isn't caught.** `Bash`
   `tool_result` content skips AST parsing (see above), so it can never be
   the first place a sensitive name is discovered — only names already in
