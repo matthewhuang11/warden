@@ -1,7 +1,7 @@
 import { obfuscateCode } from './obfuscateCode.js';
 import { obfuscateKnownNames } from './obfuscateKnownNames.js';
 import type { RenameMap } from './renameMap.js';
-import type { AuditEvent } from '../audit/auditTypes.js';
+import { createAuditEvent, type AuditEvent } from '../audit/auditTypes.js';
 
 // A human-readable label for one obfuscated block (e.g. a file path or
 // "Bash: <command>"), purely for presentation — doesn't affect what gets
@@ -30,14 +30,15 @@ const WRITE_TOOL_NAMES = new Set(['Write']);
 // these get a plain known-names-only substitution instead, see
 // obfuscateBashResultText below.
 const BASH_TOOL_NAMES = new Set(['Bash']);
+const SOURCE_PATH_PATTERN = /(?<![A-Za-z0-9_.-])(?:\.{0,2}\/|\/)?(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.(?:[cm]?[jt]sx?|json|py|go|rs|java|rb|php|css|scss|html|md|sql|ya?ml)\b/g;
+const SOURCE_PATH_EXACT_PATTERN = /^(?:\.{0,2}\/|\/)?(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.(?:[cm]?[jt]sx?|json|py|go|rs|java|rb|php|css|scss|html|md|sql|ya?ml)$/;
 
 /**
  * Walks an Anthropic Messages API request body looking for source code in
- * two places: Edit/Write tool_use inputs (code the assistant is about to
- * write) and tool_result content (file/command output sent back to the
- * model as context, e.g. from Read or Bash). Mutates and returns the same
- * body object. Anything outside those two shapes — plain text blocks, the
- * system prompt, other tool inputs — is left untouched, per scope.
+ * source-bearing tool inputs/results plus source paths in user text and tool
+ * history. Path aliases are rehydrated on the response path before a local
+ * tool executes, so the model sees a neutral path while the client still
+ * opens the requested local file.
  */
 export async function transformRequestBody(
   body: unknown,
@@ -67,8 +68,20 @@ export async function transformRequestBody(
     for (const block of message.content) {
       if (!isRecord(block)) continue;
 
+      if (block.type === 'text' && typeof block.text === 'string') {
+        block.text = obfuscateSourcePaths(block.text, renameMap, stats);
+        continue;
+      }
+
       if (block.type === 'tool_use' && typeof block.name === 'string' && isRecord(block.input)) {
-        const label = deriveLabel(block.name, block.input);
+        const toolCall = typeof block.id === 'string' ? toolCallById.get(block.id) : undefined;
+        const label = toolCall?.label ?? deriveLabel(block.name, block.input);
+        if (typeof block.input.file_path === 'string') {
+          block.input.file_path = obfuscateSourcePath(block.input.file_path, renameMap, stats);
+        }
+        if (BASH_TOOL_NAMES.has(block.name) && typeof block.input.command === 'string') {
+          block.input.command = obfuscateKnownNames(block.input.command, renameMap).output;
+        }
         if (EDIT_TOOL_NAMES.has(block.name)) {
           await obfuscateField(block.input, 'old_string', renameMap, stats, label);
           await obfuscateField(block.input, 'new_string', renameMap, stats, label);
@@ -81,7 +94,7 @@ export async function transformRequestBody(
       if (block.type === 'tool_result') {
         const toolCall = typeof block.tool_use_id === 'string' ? toolCallById.get(block.tool_use_id) : undefined;
         const isBash = toolCall !== undefined && BASH_TOOL_NAMES.has(toolCall.name);
-        const label = toolCall ? deriveLabel(toolCall.name, toolCall.input) : 'tool_result';
+        const label = toolCall?.label ?? 'tool_result';
 
         if (typeof block.content === 'string') {
           block.content = isBash
@@ -106,6 +119,7 @@ export async function transformRequestBody(
 interface ToolCall {
   name: string;
   input: Record<string, unknown>;
+  label: string;
 }
 
 /** Maps each tool_use block's id to its name and input, across the whole
@@ -125,7 +139,7 @@ function buildToolCallById(messages: unknown[]): Map<string, ToolCall> {
         typeof block.name === 'string' &&
         isRecord(block.input)
       ) {
-        toolCallById.set(block.id, { name: block.name, input: block.input });
+        toolCallById.set(block.id, { name: block.name, input: block.input, label: deriveLabel(block.name, block.input) });
       }
     }
   }
@@ -148,6 +162,22 @@ function deriveLabel(toolName: string, input: Record<string, unknown>): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function obfuscateSourcePath(pathValue: string, renameMap: RenameMap, stats: TransformStats): string {
+  if (!SOURCE_PATH_EXACT_PATTERN.test(pathValue)) return pathValue;
+  return aliasSourcePath(pathValue, renameMap, stats);
+}
+
+function aliasSourcePath(pathValue: string, renameMap: RenameMap, stats: TransformStats): string {
+  const synthetic = renameMap.getOrCreatePath(pathValue);
+  stats.stringsRedacted += 1;
+  stats.auditEvents.push(createAuditEvent('string', pathValue));
+  return synthetic;
+}
+
+function obfuscateSourcePaths(text: string, renameMap: RenameMap, stats: TransformStats): string {
+  return text.replace(SOURCE_PATH_PATTERN, (pathValue) => aliasSourcePath(pathValue, renameMap, stats));
 }
 
 async function obfuscateField(

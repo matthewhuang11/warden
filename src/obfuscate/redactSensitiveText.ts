@@ -36,10 +36,9 @@ const COMPARISON_OPERATORS = new Set(['==', '===', '!=', '!==', '<', '>', '<=', 
  * code. Strings are much more conservative (case (2)): only long,
  * multi-word literals are touched, and several structural contexts (import
  * paths, object keys, JSX attribute values, comparisons/switch values) are
- * always left alone even if they'd otherwise qualify, because those are
- * places where the *exact* string value is load-bearing for control flow
- * the model needs to see. When genuinely unsure, this leans toward NOT
- * redacting.
+ * left alone by the prose heuristic. Short values explicitly declared in a
+ * local interface contract are instead replaced consistently at every site,
+ * preserving control-flow relationships without exposing the domain token.
  */
 export function redactSensitiveText(
   source: string,

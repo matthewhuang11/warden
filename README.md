@@ -77,7 +77,7 @@ To go back to talking to Anthropic directly, `unset ANTHROPIC_BASE_URL`
 | `WARDEN_SESSION_MAPPING_TTL_MS` | `1800000` | Idle lifetime of an in-memory mapping before it expires |
 | `WARDEN_VERBOSE` | unset | Set to `1` for detailed JSON logs (see **Watching it work**) |
 | `WARDEN_REDACT_COMMENTS` | enabled | Set to `0` to stop redacting comments (see **What gets obfuscated**) |
-| `WARDEN_REDACT_STRINGS` | enabled | Set to `0` to stop redacting long, business-sounding string literals (see **What gets obfuscated**) |
+| `WARDEN_REDACT_STRINGS` | enabled | Set to `0` to stop redacting business string literals and contract enum values (see **What gets obfuscated**) |
 | `WARDEN_CONNECT_CONFIG` | `~/.warden/connect.json` | Local opt-in team-sync configuration path |
 | `WARDEN_DASHBOARD_URL` | unset | Dashboard sync endpoint used by `warden connect` when `--url` is omitted |
 
@@ -93,14 +93,16 @@ effect, try also setting `ANTHROPIC_AUTH_TOKEN`.
 
 ## What gets obfuscated
 
-Only `POST /v1/messages` requests are inspected. Within those, two places:
+Only `POST /v1/messages` requests are inspected. Within those:
 
+- **Source paths** in user text and tool history are replaced with reversible,
+  neutral aliases before forwarding.
 - **`Edit`/`Write` tool_use inputs** — code the assistant is about to
   write (`old_string`/`new_string`/`content`).
 - **`tool_result` content** — file/command output sent back to the model
   as context (e.g. `Read`/`Bash` results).
 
-Plain chat text and the system prompt are left alone. If a code block
+Apart from detected source paths, plain chat text and the system prompt are left alone. If a code block
 doesn't parse cleanly as JS/TS (e.g. `Edit`'s `old_string`/`new_string` is
 often a small fragment rather than a complete, syntactically valid
 program), it's forwarded untouched rather than risk corrupting it — watch
