@@ -35,3 +35,23 @@ test('persists aggregate payloads in the local SQLite fallback', async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('does not fall back to SQLite in a Vercel runtime', async () => {
+  const previousUrl = process.env.DATABASE_URL;
+  const previousVercel = process.env.VERCEL;
+  delete process.env.DATABASE_URL;
+  process.env.VERCEL = '1';
+
+  try {
+    await assert.rejects(
+      listSyncPayloads(),
+      /DATABASE_URL is not available to this Vercel deployment/,
+    );
+  } finally {
+    await closeStore();
+    if (previousUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousUrl;
+    if (previousVercel === undefined) delete process.env.VERCEL;
+    else process.env.VERCEL = previousVercel;
+  }
+});

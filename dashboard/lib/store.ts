@@ -10,6 +10,11 @@ let postgresSchema: Promise<void> | undefined;
 
 function getSqliteDatabase(): DatabaseSync {
   if (sqliteDatabase) return sqliteDatabase;
+  if (process.env.VERCEL) {
+    throw new Error(
+      'DATABASE_URL is not available to this Vercel deployment. Connect Neon to this project for the active environment, then redeploy.',
+    );
+  }
   const filePath = process.env.WARDEN_DASHBOARD_DB_PATH ?? path.join(process.cwd(), 'data', 'warden-dashboard.db');
   mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
   sqliteDatabase = new DatabaseSync(filePath);
