@@ -1,4 +1,4 @@
-import type { DeclKind, VariableRole } from './scopeAnalyzer.js';
+import type { DeclarationRole, DeclKind, PropertyRole, VariableRole } from './scopeAnalyzer.js';
 
 // Widens the identifier-renaming vocabulary (DeclKind) with a 'string' kind
 // for redacted string-literal content (see redactSensitiveText.ts). A
@@ -22,10 +22,12 @@ const KIND_PREFIX: Record<RenameKind, string> = {
 // has no entry here — it draws from the theme's plain `variable` pool,
 // same as before role-awareness existed.
 type SpecialVariableRole = Exclude<VariableRole, 'passthrough'>;
+type SpecialPropertyRole = Exclude<PropertyRole, 'other'>;
 
 interface StealthTheme {
   names: Record<RenameKind, readonly string[]>;
   variableRoles: Record<SpecialVariableRole, readonly string[]>;
+  propertyRoles: Record<SpecialPropertyRole, readonly string[]>;
 }
 
 const STEALTH_NAME_QUALIFIERS = [
@@ -104,6 +106,11 @@ const STEALTH_THEMES: readonly StealthTheme[] = [
       boolean: ['meetsPolicyThreshold', 'isPolicyQualified', 'passesPolicyCheck', 'isWithinPolicyBounds', 'satisfiesPolicyCriteria'],
       accumulator: ['runningPolicyTotal', 'accumulatedPolicyBalance', 'cumulativePolicyAmount', 'aggregatedPolicySum', 'policyRunningSum'],
     },
+    propertyRoles: {
+      number: ['baseAmount', 'reservedAmount', 'adjustmentAmount', 'approvedAmount', 'remainingAmount', 'thresholdAmount', 'resultAmount', 'availableAmount'],
+      boolean: ['isConfirmed', 'requiresReview', 'needsManualReview', 'isEnabled', 'isEligible', 'hasException', 'isActive', 'shouldEscalate'],
+      enum: ['processingCadence', 'resultStatus', 'decisionMode', 'workflowState', 'handlingType', 'resolutionState', 'processingMode', 'outcomeStatus'],
+    },
   },
   {
     names: {
@@ -141,6 +148,11 @@ const STEALTH_THEMES: readonly StealthTheme[] = [
       difference: ['assessmentShortfallAmount', 'assessmentVarianceAmount', 'remainingAssessmentBalance', 'assessmentOverageAmount', 'netAssessmentDifference'],
       boolean: ['meetsAssessmentThreshold', 'isAssessmentQualified', 'passesAssessmentCheck', 'isWithinAssessmentBounds', 'satisfiesAssessmentCriteria'],
       accumulator: ['runningAssessmentTotal', 'accumulatedAssessmentBalance', 'cumulativeAssessmentAmount', 'aggregatedAssessmentSum', 'assessmentRunningSum'],
+    },
+    propertyRoles: {
+      number: ['initialAmount', 'reservedAmount', 'supplementalAmount', 'acceptedAmount', 'remainingAmount', 'boundaryAmount', 'finalAmount', 'currentAmount'],
+      boolean: ['isVerified', 'needsReview', 'requiresManualReview', 'isAllowed', 'isQualified', 'hasRestriction', 'isCurrent', 'shouldReview'],
+      enum: ['assessmentCadence', 'outcomeStatus', 'assessmentMode', 'responseState', 'handlingCategory', 'decisionStatus', 'evaluationMode', 'resultStatus'],
     },
   },
   {
@@ -180,8 +192,21 @@ const STEALTH_THEMES: readonly StealthTheme[] = [
       boolean: ['meetsWorkflowThreshold', 'isWorkflowQualified', 'passesWorkflowCheck', 'isWithinWorkflowBounds', 'satisfiesWorkflowCriteria'],
       accumulator: ['runningWorkflowTotal', 'accumulatedWorkflowBalance', 'cumulativeWorkflowAmount', 'aggregatedWorkflowSum', 'workflowRunningSum'],
     },
+    propertyRoles: {
+      number: ['sourceAmount', 'adjustmentAmount', 'pendingAmount', 'resultAmount', 'remainingAmount', 'limitAmount', 'outputAmount', 'currentAmount'],
+      boolean: ['isAvailable', 'manualReview', 'requiresApproval', 'isPermitted', 'isValid', 'hasOverride', 'isOpen', 'shouldRoute'],
+      enum: ['requestCadence', 'workflowState', 'routingMode', 'responseStatus', 'processingType', 'resolutionStatus', 'requestMode', 'outcomeState'],
+    },
   },
 ];
+
+function isSpecialVariableRole(role: DeclarationRole | undefined): role is SpecialVariableRole {
+  return role === 'clamped' || role === 'difference' || role === 'boolean' || role === 'accumulator';
+}
+
+function isSpecialPropertyRole(role: DeclarationRole | undefined): role is SpecialPropertyRole {
+  return role === 'number' || role === 'boolean' || role === 'enum';
+}
 
 /**
  * Session-lifetime, in-memory-only mapping between original identifier
@@ -255,7 +280,7 @@ export class RenameMap {
     return synthetic;
   }
 
-  getOrCreate(originalName: string, kind: RenameKind, role?: VariableRole): string {
+  getOrCreate(originalName: string, kind: RenameKind, role?: DeclarationRole): string {
     const existing = this.get(originalName);
     if (existing) return existing;
 
@@ -265,11 +290,18 @@ export class RenameMap {
     // different original names collide on the same synthetic (e.g. the
     // first 'variable' and first 'variable:accumulator' both becoming
     // `var_1`).
-    const specialRole = this.style === 'stealth' && kind === 'variable' && role && role !== 'passthrough' ? role : undefined;
-    const counterKey = specialRole ? `variable:${specialRole}` : kind;
+    const variableRole =
+      this.style === 'stealth' && kind === 'variable' && isSpecialVariableRole(role) ? role : undefined;
+    const propertyRole =
+      this.style === 'stealth' && kind === 'property' && isSpecialPropertyRole(role) ? role : undefined;
+    const counterKey = variableRole
+      ? `variable:${variableRole}`
+      : propertyRole
+        ? `property:${propertyRole}`
+        : kind;
     const next = (this.countersByKind.get(counterKey) ?? 0) + 1;
     this.countersByKind.set(counterKey, next);
-    const synthetic = this.allocateName(originalName, kind, next, specialRole);
+    const synthetic = this.allocateName(originalName, kind, next, variableRole, propertyRole);
 
     this.store(originalName, synthetic);
     return synthetic;
@@ -353,10 +385,20 @@ export class RenameMap {
     if (synthetic !== undefined) this.toOriginal.delete(synthetic);
   }
 
-  private allocateName(originalName: string, kind: RenameKind, counter: number, specialRole?: SpecialVariableRole): string {
+  private allocateName(
+    originalName: string,
+    kind: RenameKind,
+    counter: number,
+    variableRole?: SpecialVariableRole,
+    propertyRole?: SpecialPropertyRole,
+  ): string {
     if (this.style === 'compact') return `${KIND_PREFIX[kind]}_${counter.toString(36)}`;
 
-    const names = specialRole ? this.stealthTheme.variableRoles[specialRole] : this.stealthTheme.names[kind];
+    const names = variableRole
+      ? this.stealthTheme.variableRoles[variableRole]
+      : propertyRole
+        ? this.stealthTheme.propertyRoles[propertyRole]
+        : this.stealthTheme.names[kind];
     for (let offset = 0; offset < names.length; offset++) {
       const candidate = names[(counter - 1 + offset) % names.length];
       if (candidate !== originalName && !this.forbiddenNames.has(candidate) && !this.toOriginal.has(candidate)) {

@@ -97,7 +97,26 @@ describe('stealth aliases', () => {
     const result = await obfuscateCode(source, map);
 
     expect(result.output).not.toMatch(/availableSettlementCents|complianceHold|cadence|daily|weekly/);
+    expect(result.output).toContain('baseAmount: number');
+    expect(result.output).toContain('isConfirmed: boolean');
+    expect(result.output).toContain("processingCadence: 'standard' | 'scheduled'");
     expect(result.output).toContain('Math.max');
+    expect(rehydrateText(result.output, map)).toBe(source);
+  });
+
+  it('keeps sequential property aliases compatible with their declared types', async () => {
+    const source = [
+      "interface InternalContract { amount: number; firstFlag: boolean; secondFlag: boolean; thirdFlag: boolean; state: 'open' | 'closed'; }",
+      'const record: InternalContract = loadRecord();',
+    ].join('\n');
+    const map = new RenameMap(100, 60_000, 'stealth', 0);
+    const result = await obfuscateCode(source, map);
+
+    expect(result.output).toContain('baseAmount: number');
+    expect(result.output).toContain('isConfirmed: boolean');
+    expect(result.output).toContain('requiresReview: boolean');
+    expect(result.output).toContain('needsManualReview: boolean');
+    expect(result.output).toContain("processingCadence: 'standard' | 'scheduled'");
     expect(rehydrateText(result.output, map)).toBe(source);
   });
 });

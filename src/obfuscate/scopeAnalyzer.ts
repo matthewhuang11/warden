@@ -13,13 +13,15 @@ export type DeclKind = 'function' | 'variable' | 'class' | 'type' | 'property';
 // is the default for anything that isn't recognizably one of the others
 // (a parameter echo, a field access, an opaque function call, ...).
 export type VariableRole = 'passthrough' | 'clamped' | 'difference' | 'boolean' | 'accumulator';
+export type PropertyRole = 'other' | 'number' | 'boolean' | 'enum';
+export type DeclarationRole = VariableRole | PropertyRole;
 
 export interface Declaration {
   id: string;
   originalName: string;
   kind: DeclKind;
-  /** Only meaningful when kind === 'variable'. */
-  role?: VariableRole;
+  /** Used by variable and property declarations to choose type-compatible aliases. */
+  role?: DeclarationRole;
 }
 
 // A site resolved to a declaration found in *this* parse ('decl'), or one
@@ -169,6 +171,15 @@ function classifyVariableRole(valueNode: Parser.SyntaxNode | null, name: string,
   return classifyInitializerRole(valueNode);
 }
 
+function classifyPropertyRole(typeNode: Parser.SyntaxNode | null): PropertyRole {
+  if (!typeNode) return 'other';
+  const typeText = typeNode.text.trim().replace(/^:\s*/, '');
+  if (typeText === 'number') return 'number';
+  if (typeText === 'boolean') return 'boolean';
+  if (/['"]/.test(typeText)) return 'enum';
+  return 'other';
+}
+
 /**
  * Walks a tree-sitter TS/TSX syntax tree and resolves every identifier to
  * either a locally-declared binding (function/variable/class/type with a plain
@@ -265,7 +276,7 @@ export function analyzeScopes(root: Parser.SyntaxNode, renameMap: RenameMap): Sc
     }
   }
 
-  function declareRenameable(nameNode: Parser.SyntaxNode, scope: Scope, kind: DeclKind, role?: VariableRole): void {
+  function declareRenameable(nameNode: Parser.SyntaxNode, scope: Scope, kind: DeclKind, role?: DeclarationRole): void {
     const id = nextId();
     scope.declare(nameNode.text, { id, name: nameNode.text, renameable: true });
     declSiteNodeIds.set(nameNode.id, id);
@@ -277,12 +288,12 @@ export function analyzeScopes(root: Parser.SyntaxNode, renameMap: RenameMap): Sc
     declSiteNodeIds.set(nameNode.id, null);
   }
 
-  function declareProperty(nameNode: Parser.SyntaxNode): void {
+  function declareProperty(nameNode: Parser.SyntaxNode, role: PropertyRole): void {
     let id = propertyDeclIds.get(nameNode.text);
     if (!id) {
       id = nextId();
       propertyDeclIds.set(nameNode.text, id);
-      declarations.push({ id, originalName: nameNode.text, kind: 'property' });
+      declarations.push({ id, originalName: nameNode.text, kind: 'property', role });
     }
     declSiteNodeIds.set(nameNode.id, id);
   }
@@ -353,7 +364,8 @@ export function analyzeScopes(root: Parser.SyntaxNode, renameMap: RenameMap): Sc
       }
       case 'property_signature': {
         const nameNode = node.childForFieldName('name');
-        if (nameNode?.type === 'property_identifier') declareProperty(nameNode);
+        const typeNode = node.childForFieldName('type');
+        if (nameNode?.type === 'property_identifier') declareProperty(nameNode, classifyPropertyRole(typeNode));
         for (const child of node.namedChildren) {
           if (child.id !== nameNode?.id) walkDeclare(child, scope);
         }
