@@ -100,7 +100,8 @@ Only `POST /v1/messages` requests are inspected. Within those:
 - **`tool_result` content** — file/command output sent back to the model
   as context (e.g. `Read`/`Bash` results).
 
-Plain chat text and existing system-prompt content are left alone. If a code block
+Plain chat text and system-prompt content are left alone; Warden never injects
+behavioral instructions into the system prompt. If a code block
 doesn't parse cleanly as JS/TS (e.g. `Edit`'s `old_string`/`new_string` is
 often a small fragment rather than a complete, syntactically valid
 program), it's forwarded untouched rather than risk corrupting it — watch

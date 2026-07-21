@@ -3,6 +3,19 @@ import { transformRequestBody } from '../src/obfuscate/transformRequestBody.js';
 import { RenameMap } from '../src/obfuscate/renameMap.js';
 
 describe('transformRequestBody block labels (for console-output reporting)', () => {
+  it('never injects or changes system-prompt content', async () => {
+    const system = [{ type: 'text', text: 'Original client instruction', cache_control: { type: 'ephemeral' } }];
+    const body = {
+      system,
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
+    };
+
+    await transformRequestBody(body, new RenameMap());
+
+    expect(body.system).toEqual(system);
+    expect(body.system).toHaveLength(1);
+  });
+
   it('labels a Read tool_result with the originating file_path', async () => {
     const map = new RenameMap();
     const body = {
