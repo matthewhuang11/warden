@@ -469,6 +469,17 @@ function collectNameCandidates(root: Parser.SyntaxNode): NameCandidate[] {
         declaredMemberNames.add(name.text);
         add(name, 'property', 'enum-member');
       }
+    } else if (node.type === 'import_clause') {
+      for (const child of node.namedChildren) {
+        if (child.type === 'identifier') add(child, 'variable');
+      }
+    } else if (node.type === 'namespace_import') {
+      const name = node.namedChildren.find((child) => child.type === 'identifier');
+      if (name) add(name, 'variable');
+    } else if (node.type === 'import_specifier' || node.type === 'export_specifier') {
+      for (const child of node.namedChildren) {
+        if (child.type === 'identifier') add(child, 'variable');
+      }
     } else if (node.type === 'type_parameter') {
       const name = node.childForFieldName('name') ?? node.namedChildren[0];
       if (name) add(name, 'type');
@@ -823,7 +834,6 @@ function isRenameableIdentifierSite(node: Parser.SyntaxNode, identifierMap: Map<
     node.type !== 'shorthand_property_identifier' &&
     node.type !== 'shorthand_property_identifier_pattern'
   ) return false;
-  if (node.type === 'identifier' && node.parent?.type === 'import_specifier') return false;
   return true;
 }
 

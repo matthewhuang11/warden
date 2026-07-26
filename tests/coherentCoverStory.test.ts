@@ -154,6 +154,23 @@ describe('coherent cover story mode', () => {
     expect(rehydrateCoverStoryText(result.output, result.plan)).toBe(source);
   });
 
+  it('rewrites named, default, namespace, and export bindings', async () => {
+    const source = [
+      "import defaultRecord, { patientRecord as localRecord } from './healthcare/records';",
+      "import * as recordApi from './healthcare/api';",
+      'export const result = recordApi.load(localRecord.patientRecord, defaultRecord);',
+      'export { localRecord as patientRecord };',
+    ].join('\n');
+    const result = await transformCoherentCoverStory(source);
+
+    expect(result.validation.valid, result.validation.reason ?? undefined).toBe(true);
+    expect(result.output).not.toContain('defaultRecord');
+    expect(result.output).not.toContain('patientRecord');
+    expect(result.output).not.toContain('localRecord');
+    expect(result.output).not.toContain('recordApi');
+    expect(rehydrateCoverStoryText(result.output, result.plan)).toBe(source);
+  });
+
   it('renames enum members, generic parameters, method signatures, and catch bindings', async () => {
     const source = [
       "enum WorkState { Pending = 'pending', Approved = 'approved', Rejected = 'rejected' }",
