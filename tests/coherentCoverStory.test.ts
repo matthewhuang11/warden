@@ -74,4 +74,33 @@ describe('coherent cover story mode', () => {
     expect(validation.valid).toBe(false);
     expect(validation.foreignVocabulary).toContain(foreignType);
   });
+
+  it('keeps TypeScript comparisons on the TypeScript parser path', async () => {
+    const source = 'export function choose(left: number, right: number): number { return left < right && right > 0 ? right : left; }';
+    const result = await transformCoherentCoverStory(source);
+
+    expect(result.plan.dialect).toBe('typescript');
+    expect(result.validation.valid).toBe(true);
+    expect(rehydrateCoverStoryText(result.output, result.plan)).toBe(source);
+  });
+
+  it('renames destructuring bindings and class fields without changing property keys', async () => {
+    const source = [
+      'interface WorkInput { firstValue: number; secondValue: number; }',
+      'class WorkBox {',
+      '  currentValue = 0;',
+      '  choose({ firstValue: sourceValue, secondValue }: WorkInput): number {',
+      '    this.currentValue = sourceValue;',
+      '    return this.currentValue < secondValue ? secondValue : sourceValue;',
+      '  }',
+      '}',
+    ].join('\n');
+    const result = await transformCoherentCoverStory(source);
+
+    expect(result.validation.valid, result.validation.reason ?? undefined).toBe(true);
+    expect(result.output).not.toContain('WorkInput');
+    expect(result.output).not.toContain('sourceValue');
+    expect(result.output).toMatch(/\{ [A-Za-z_$][\w$]*: [A-Za-z_$][\w$]*,/);
+    expect(rehydrateCoverStoryText(result.output, result.plan)).toBe(source);
+  });
 });

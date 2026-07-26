@@ -234,14 +234,26 @@ const RESERVED_GLOBALS = new Set([
   'undefined', 'null', 'true', 'false', 'NaN', 'Infinity', 'Error', 'RegExp', 'Readonly', 'Record', 'Partial',
 ]);
 
+const DIALECT_ATTEMPT_ORDER: Dialect[] = ['typescript', 'tsx'];
+
 export async function transformCoherentCoverStory(
   source: string,
   options: CoherentCoverStoryOptions = {},
 ): Promise<CoherentCoverStoryResult> {
-  const dialect: Dialect = source.includes('<') && source.includes('>') ? 'tsx' : 'typescript';
-  const parser = await getParser(dialect);
-  const originalTree = parser.parse(source);
-  if (originalTree.rootNode.hasError) throw new Error('Cannot build a cover story from a syntax-error tree');
+  let dialect: Dialect | null = null;
+  let parser: Parser | null = null;
+  let originalTree: Parser.Tree | null = null;
+  for (const attempt of DIALECT_ATTEMPT_ORDER) {
+    const candidateParser = await getParser(attempt);
+    const candidateTree = candidateParser.parse(source);
+    if (!candidateTree.rootNode.hasError) {
+      dialect = attempt;
+      parser = candidateParser;
+      originalTree = candidateTree;
+      break;
+    }
+  }
+  if (!dialect || !parser || !originalTree) throw new Error('Cannot build a cover story from a syntax-error tree');
 
   const shape = inferStructuralShape(originalTree.rootNode);
   const domain = chooseDomain(shape);
@@ -297,7 +309,9 @@ export async function transformCoherentCoverStory(
     if (!isRenameableIdentifierSite(node, identifierMap)) return;
     const synthetic = identifierMap.get(node.text);
     if (!synthetic) return;
-    const replacement = node.type === 'shorthand_property_identifier' ? `${synthetic}: ${synthetic}` : synthetic;
+    const replacement = node.type === 'shorthand_property_identifier' || node.type === 'shorthand_property_identifier_pattern'
+      ? `${synthetic}: ${synthetic}`
+      : synthetic;
     identifierEdits.push({ startIndex: node.startIndex, endIndex: node.endIndex, replacement });
   });
   const output = applyEdits(withCoverText, identifierEdits);
@@ -414,13 +428,16 @@ function collectNameCandidates(root: Parser.SyntaxNode): NameCandidate[] {
       if (name) add(name, 'type');
     } else if (node.type === 'variable_declarator') {
       const name = node.childForFieldName('name');
-      if (name?.type === 'identifier') add(name, 'variable');
+      if (name) collectPatternBindings(name, (binding) => add(binding, 'variable'));
     } else if (node.type === 'property_signature') {
       const name = node.childForFieldName('name');
       if (name?.type === 'property_identifier') add(name, 'property', classifyProperty(node.childForFieldName('type')));
     } else if (node.type === 'method_definition') {
       const name = node.childForFieldName('name');
       if (name) add(name, 'function');
+    } else if (node.type === 'public_field_definition') {
+      const name = node.childForFieldName('name');
+      if (name) add(name, 'property');
     } else if (node.type === 'pair') {
       const key = node.childForFieldName('key');
       if (key?.type === 'property_identifier' || key?.type === 'identifier') add(key, 'property');
@@ -438,9 +455,47 @@ function collectNameCandidates(root: Parser.SyntaxNode): NameCandidate[] {
   walk(root, (node) => {
     if (node.type !== 'required_parameter' && node.type !== 'optional_parameter') return;
     const pattern = node.childForFieldName('pattern') ?? node.namedChildren.find((child) => child.type === 'identifier');
-    if (pattern?.type === 'identifier') add(pattern, 'variable');
+    if (pattern) collectPatternBindings(pattern, (binding) => add(binding, 'variable'));
   });
   return [...candidates.values()];
+}
+
+function collectPatternBindings(
+  pattern: Parser.SyntaxNode,
+  add: (binding: Parser.SyntaxNode) => void,
+): void {
+  switch (pattern.type) {
+    case 'identifier':
+    case 'shorthand_property_identifier_pattern':
+      add(pattern);
+      return;
+    case 'object_pattern':
+    case 'array_pattern':
+      for (const child of pattern.namedChildren) collectPatternBindings(child, add);
+      return;
+    case 'pair_pattern': {
+      const value = pattern.childForFieldName('value');
+      if (value) collectPatternBindings(value, add);
+      return;
+    }
+    case 'object_assignment_pattern': {
+      const left = pattern.childForFieldName('left');
+      if (left) collectPatternBindings(left, add);
+      return;
+    }
+    case 'assignment_pattern': {
+      const left = pattern.childForFieldName('left');
+      if (left) collectPatternBindings(left, add);
+      return;
+    }
+    case 'rest_pattern': {
+      const argument = pattern.namedChild(0);
+      if (argument) collectPatternBindings(argument, add);
+      return;
+    }
+    default:
+      return;
+  }
 }
 
 function allocateIdentifierMappings(
@@ -563,7 +618,13 @@ function isLookupPropertyString(node: Parser.SyntaxNode): boolean {
 
 function isRenameableIdentifierSite(node: Parser.SyntaxNode, identifierMap: Map<string, string>): boolean {
   if (!identifierMap.has(node.text)) return false;
-  if (node.type !== 'identifier' && node.type !== 'type_identifier' && node.type !== 'property_identifier' && node.type !== 'shorthand_property_identifier') return false;
+  if (
+    node.type !== 'identifier' &&
+    node.type !== 'type_identifier' &&
+    node.type !== 'property_identifier' &&
+    node.type !== 'shorthand_property_identifier' &&
+    node.type !== 'shorthand_property_identifier_pattern'
+  ) return false;
   if (node.type === 'identifier' && node.parent?.type === 'import_specifier') return false;
   return true;
 }
