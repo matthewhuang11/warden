@@ -416,7 +416,8 @@ function collectNameCandidates(root: Parser.SyntaxNode): NameCandidate[] {
   });
   const add = (node: Parser.SyntaxNode, category: NameCandidate['category'], role?: string) => {
     const name = node.text;
-    if (!name || RESERVED_GLOBALS.has(name) || !/^[A-Za-z_$][\w$]*$/.test(name)) return;
+    const comparableName = name.startsWith('#') ? name.slice(1) : name;
+    if (!name || RESERVED_GLOBALS.has(comparableName) || !/^[A-Za-z_$][\w$]*$/.test(comparableName)) return;
     if (!candidates.has(name)) candidates.set(name, { original: name, kind: 'identifier', category, role });
   };
 
@@ -597,18 +598,19 @@ function allocateIdentifierMappings(
                 : variableIndex++;
     let synthetic: string | undefined;
     const namePool = namePoolFor(candidate, list, domain);
+    const privatePrefix = candidate.original.startsWith('#') ? '#' : '';
     for (let offset = 0; offset < namePool.length; offset++) {
-      const candidateName = namePool[(index + offset) % namePool.length];
+      const candidateName = `${privatePrefix}${namePool[(index + offset) % namePool.length]}`;
       if (!used.has(candidateName) && (!forbidden.has(candidateName) || candidateName === candidate.original)) {
         synthetic = candidateName;
         break;
       }
     }
     if (!synthetic) {
-      const base = list[index % list.length];
-      let suffix = 2;
-      synthetic = `${base}${suffix}`;
-      while (used.has(synthetic) || forbidden.has(synthetic)) synthetic = `${base}${++suffix}`;
+    const base = list[index % list.length];
+    let suffix = 2;
+    synthetic = `${privatePrefix}${base}${suffix}`;
+    while (used.has(synthetic) || forbidden.has(synthetic)) synthetic = `${privatePrefix}${base}${++suffix}`;
     }
     used.add(synthetic);
     mappings.push({ original: candidate.original, synthetic, kind: 'identifier' });
@@ -713,6 +715,7 @@ function isRenameableIdentifierSite(node: Parser.SyntaxNode, identifierMap: Map<
     node.type !== 'type_identifier' &&
     node.type !== 'property_identifier' &&
     node.type !== 'jsx_identifier' &&
+    node.type !== 'private_property_identifier' &&
     node.type !== 'shorthand_property_identifier' &&
     node.type !== 'shorthand_property_identifier_pattern'
   ) return false;
@@ -748,7 +751,7 @@ function findRemainingRealNames(root: Parser.SyntaxNode, mappings: readonly Cove
   walk(root, (node) => {
     if (node.type === 'comment') {
       for (const mapping of mappings) {
-        if (new RegExp(`\\b${escapeRegExp(mapping.original)}\\b`).test(node.text)) remaining.add(mapping.original);
+        if (node.text.includes(mapping.original)) remaining.add(mapping.original);
       }
       return;
     }

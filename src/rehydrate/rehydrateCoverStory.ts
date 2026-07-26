@@ -46,7 +46,10 @@ function replaceIdentifiers(text: string, replacements: Map<string, string>): st
   let output = text;
   for (const [synthetic, original] of [...replacements.entries()].sort(byKeyLength)) {
     const escaped = escapeRegExp(synthetic);
-    output = output.replace(new RegExp(`\\b${escaped}\\b`, 'g'), original);
+    const pattern = synthetic.startsWith('#')
+      ? `(?<![A-Za-z0-9_$])${escaped}(?![A-Za-z0-9_$])`
+      : `\\b${escaped}\\b`;
+    output = output.replace(new RegExp(pattern, 'g'), () => original);
   }
   return output;
 }

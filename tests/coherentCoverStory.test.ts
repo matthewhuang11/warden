@@ -159,4 +159,18 @@ describe('coherent cover story mode', () => {
     expect(result.output).toContain('data-label');
     expect(rehydrateCoverStoryText(result.output, result.plan)).toBe(source);
   });
+
+  it('renames and rehydrates private class fields', async () => {
+    const source = [
+      'class WorkBox {',
+      '  #currentValue = 0;',
+      '  readValue(input: number): number { return this.#currentValue + input; }',
+      '}',
+    ].join('\n');
+    const result = await transformCoherentCoverStory(source);
+
+    expect(result.validation.valid, result.validation.reason ?? undefined).toBe(true);
+    expect(result.output).not.toContain('#currentValue');
+    expect(rehydrateCoverStoryText(result.output, result.plan)).toBe(source);
+  });
 });
