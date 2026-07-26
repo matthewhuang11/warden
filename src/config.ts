@@ -13,6 +13,7 @@ export interface WardenConfig {
   sessionMappingTtlMs: number;
   redactComments: boolean;
   redactStrings: boolean;
+  coverStoryMode: 'pool' | 'coherent';
 }
 
 function readPositiveInteger(env: NodeJS.ProcessEnv, key: string, fallback: number): number {
@@ -51,6 +52,10 @@ export function readConfig(env: NodeJS.ProcessEnv): WardenConfig {
   const maxSseResponseBytes = readPositiveInteger(env, 'WARDEN_MAX_SSE_RESPONSE_BYTES', 50 * 1024 * 1024);
   const maxSessionMappings = readPositiveInteger(env, 'WARDEN_MAX_SESSION_MAPPINGS', 10000);
   const sessionMappingTtlMs = readPositiveInteger(env, 'WARDEN_SESSION_MAPPING_TTL_MS', 30 * 60 * 1000);
+  const coverStoryMode = env.WARDEN_COVER_STORY_MODE ?? 'pool';
+  if (coverStoryMode !== 'pool' && coverStoryMode !== 'coherent') {
+    throw new Error(`Invalid WARDEN_COVER_STORY_MODE: ${coverStoryMode}`);
+  }
 
   return {
     port,
@@ -67,6 +72,7 @@ export function readConfig(env: NodeJS.ProcessEnv): WardenConfig {
     sessionMappingTtlMs,
     redactComments: env.WARDEN_REDACT_COMMENTS !== '0',
     redactStrings: env.WARDEN_REDACT_STRINGS !== '0',
+    coverStoryMode,
   };
 }
 

@@ -5,7 +5,7 @@ import { Readable, Transform } from 'node:stream';
 import { config } from './config.js';
 import { logger } from './log.js';
 import { transformRequestBody } from './obfuscate/transformRequestBody.js';
-import { sessionRenameMap } from './session.js';
+import { coherentCoverStorySession, sessionRenameMap } from './session.js';
 import { rehydrateSseStream } from './rehydrate/sseRehydrate.js';
 import { rehydrateJsonValue } from './rehydrate/rehydrateJson.js';
 import {
@@ -236,7 +236,10 @@ async function prepareObfuscatedBody(raw: Buffer, path: string): Promise<Prepare
   // original request untouched rather than failing it outright — obfuscation
   // is a best-effort privacy layer, not something worth blocking traffic for.
   try {
-    const { body: transformed, stats } = await transformRequestBody(parsed, sessionRenameMap);
+    const { body: transformed, stats } = await transformRequestBody(parsed, sessionRenameMap, {
+      mode: config.coverStoryMode,
+      coherentSession: config.coverStoryMode === 'coherent' ? coherentCoverStorySession : undefined,
+    });
     await recordAuditEvents(stats.auditEvents);
     logger.info('obfuscate.request_transformed', { path, ...stats });
     printObfuscationSummary(stats);
@@ -380,7 +383,15 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
   if (shouldObfuscate && contentType.includes('text/event-stream')) {
     res.writeHead(upstreamResponse.status, buildResponseHeaders(upstreamResponse));
     const upstreamNodeStream = Readable.fromWeb(upstreamResponse.body as import('node:stream/web').ReadableStream);
-    const rehydratedStream = limitSseStream(Readable.from(rehydrateSseStream(upstreamNodeStream, sessionRenameMap)));
+    const rehydratedStream = limitSseStream(
+      Readable.from(
+        rehydrateSseStream(
+          upstreamNodeStream,
+          sessionRenameMap,
+          config.coverStoryMode === 'coherent' ? coherentCoverStorySession : undefined,
+        ),
+      ),
+    );
     rehydratedStream.on('error', (err) => {
       logger.error('response.stream_error', { method, path: logPath, errorType: errorType(err) });
       markResponse(upstreamResponse.status);
@@ -412,7 +423,13 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
     let output = rawText;
     try {
       const parsed = JSON.parse(rawText);
-      output = JSON.stringify(rehydrateJsonValue(parsed, sessionRenameMap));
+      output = JSON.stringify(
+        rehydrateJsonValue(
+          parsed,
+          sessionRenameMap,
+          config.coverStoryMode === 'coherent' ? coherentCoverStorySession : undefined,
+        ),
+      );
     } catch (err) {
       logger.warn('rehydrate.response_not_json', { method, path: logPath, errorType: errorType(err) });
     }

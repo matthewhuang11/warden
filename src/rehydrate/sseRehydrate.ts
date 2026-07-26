@@ -1,4 +1,5 @@
 import type { RenameMap } from '../obfuscate/renameMap.js';
+import type { CoherentCoverStorySession } from '../session.js';
 import { logger } from '../log.js';
 import { rehydrateText } from './rehydrateText.js';
 
@@ -42,14 +43,19 @@ class SseRehydrator {
   private readonly textPending = new Map<number, string>();
   private readonly jsonBuffer = new Map<number, string>();
 
-  constructor(private readonly renameMap: RenameMap) {}
+  constructor(
+    private readonly renameMap: RenameMap,
+    private readonly coherentSession?: CoherentCoverStorySession,
+  ) {}
 
   private safeTextLength(text: string, desiredLength: number): number {
     let safeLength = desiredLength;
     const partialWord = text.slice(0, safeLength).match(/[A-Za-z_$][\w$]*$/)?.[0];
     if (
       partialWord &&
-      this.renameMap.syntheticNames().some((synthetic) => synthetic.startsWith(partialWord) && synthetic.length > partialWord.length)
+      [...this.renameMap.syntheticNames(), ...(this.coherentSession?.syntheticNames() ?? [])].some(
+        (synthetic) => synthetic.startsWith(partialWord) && synthetic.length > partialWord.length,
+      )
     ) {
       safeLength -= partialWord.length;
     }
@@ -97,7 +103,7 @@ class SseRehydrator {
       const safeLength = this.safeTextLength(combined, combined.length - TAIL_HOLDBACK);
       this.textPending.set(index, combined.slice(safeLength));
       if (safeLength === 0) return '';
-      const emitted = rehydrateText(combined.slice(0, safeLength), this.renameMap);
+      const emitted = rehydrateText(combined.slice(0, safeLength), this.renameMap, this.coherentSession);
       return buildDeltaEventText({ index, kind: 'text_delta', text: emitted });
     }
 
@@ -118,13 +124,13 @@ class SseRehydrator {
     const textLeftover = this.textPending.get(index);
     this.textPending.delete(index);
     if (textLeftover) {
-      parts.push(buildDeltaEventText({ index, kind: 'text_delta', text: rehydrateText(textLeftover, this.renameMap) }));
+      parts.push(buildDeltaEventText({ index, kind: 'text_delta', text: rehydrateText(textLeftover, this.renameMap, this.coherentSession) }));
     }
 
     const jsonFull = this.jsonBuffer.get(index);
     this.jsonBuffer.delete(index);
     if (jsonFull) {
-      parts.push(buildDeltaEventText({ index, kind: 'input_json_delta', text: rehydrateText(jsonFull, this.renameMap) }));
+      parts.push(buildDeltaEventText({ index, kind: 'input_json_delta', text: rehydrateText(jsonFull, this.renameMap, this.coherentSession) }));
     }
 
     parts.push(stopFrame);
@@ -136,10 +142,10 @@ class SseRehydrator {
   flushRemaining(): string {
     const parts: string[] = [];
     for (const [index, text] of this.textPending) {
-      parts.push(buildDeltaEventText({ index, kind: 'text_delta', text: rehydrateText(text, this.renameMap) }));
+      parts.push(buildDeltaEventText({ index, kind: 'text_delta', text: rehydrateText(text, this.renameMap, this.coherentSession) }));
     }
     for (const [index, text] of this.jsonBuffer) {
-      parts.push(buildDeltaEventText({ index, kind: 'input_json_delta', text: rehydrateText(text, this.renameMap) }));
+      parts.push(buildDeltaEventText({ index, kind: 'input_json_delta', text: rehydrateText(text, this.renameMap, this.coherentSession) }));
     }
     this.textPending.clear();
     this.jsonBuffer.clear();
@@ -154,8 +160,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export async function* rehydrateSseStream(
   upstream: AsyncIterable<Uint8Array>,
   renameMap: RenameMap,
+  coherentSession?: CoherentCoverStorySession,
 ): AsyncGenerator<Uint8Array> {
-  const rehydrator = new SseRehydrator(renameMap);
+  const rehydrator = new SseRehydrator(renameMap, coherentSession);
   const decoder = new TextDecoder('utf-8');
   const encoder = new TextEncoder();
   let buffer = '';

@@ -2,6 +2,14 @@ import { obfuscateCode } from './obfuscateCode.js';
 import { obfuscateKnownNames } from './obfuscateKnownNames.js';
 import type { RenameMap } from './renameMap.js';
 import type { AuditEvent } from '../audit/auditTypes.js';
+import type { CoherentCoverStorySession } from '../session.js';
+
+export type ObfuscationMode = 'pool' | 'coherent';
+
+export interface TransformRequestOptions {
+  mode?: ObfuscationMode;
+  coherentSession?: CoherentCoverStorySession;
+}
 
 // A human-readable label for one obfuscated block (e.g. a file path or
 // "Bash: <command>"), purely for presentation — doesn't affect what gets
@@ -21,6 +29,9 @@ export interface TransformStats {
   secretsRedacted: number;
   auditEvents: AuditEvent[];
   blocks: ObfuscatedBlockSummary[];
+  coherentBlocks?: number;
+  coherentDomains?: string[];
+  coherentFallbacks?: number;
 }
 
 const EDIT_TOOL_NAMES = new Set(['Edit']);
@@ -39,6 +50,7 @@ const BASH_TOOL_NAMES = new Set(['Bash']);
 export async function transformRequestBody(
   body: unknown,
   renameMap: RenameMap,
+  options: TransformRequestOptions = {},
 ): Promise<{ body: unknown; stats: TransformStats }> {
   const stats: TransformStats = {
     blocksScanned: 0,
@@ -50,6 +62,9 @@ export async function transformRequestBody(
     secretsRedacted: 0,
     auditEvents: [],
     blocks: [],
+    coherentBlocks: 0,
+    coherentDomains: [],
+    coherentFallbacks: 0,
   };
 
   if (!isRecord(body) || !Array.isArray(body.messages)) {
@@ -67,10 +82,10 @@ export async function transformRequestBody(
       if (block.type === 'tool_use' && typeof block.name === 'string' && isRecord(block.input)) {
         const label = deriveLabel(block.name, block.input);
         if (EDIT_TOOL_NAMES.has(block.name)) {
-          await obfuscateField(block.input, 'old_string', renameMap, stats, label);
-          await obfuscateField(block.input, 'new_string', renameMap, stats, label);
+          await obfuscateField(block.input, 'old_string', renameMap, stats, label, options);
+          await obfuscateField(block.input, 'new_string', renameMap, stats, label, options);
         } else if (WRITE_TOOL_NAMES.has(block.name)) {
-          await obfuscateField(block.input, 'content', renameMap, stats, label);
+          await obfuscateField(block.input, 'content', renameMap, stats, label, options);
         }
         continue;
       }
@@ -83,13 +98,13 @@ export async function transformRequestBody(
         if (typeof block.content === 'string') {
           block.content = isBash
             ? obfuscateBashResultText(block.content, renameMap, stats, label)
-            : await obfuscateText(block.content, renameMap, stats, label);
+              : await obfuscateText(block.content, renameMap, stats, label, options);
         } else if (Array.isArray(block.content)) {
           for (const inner of block.content) {
             if (isRecord(inner) && inner.type === 'text' && typeof inner.text === 'string') {
               inner.text = isBash
                 ? obfuscateBashResultText(inner.text, renameMap, stats, label)
-                : await obfuscateText(inner.text, renameMap, stats, label);
+                : await obfuscateText(inner.text, renameMap, stats, label, options);
             }
           }
         }
@@ -153,14 +168,36 @@ async function obfuscateField(
   renameMap: RenameMap,
   stats: TransformStats,
   label: string,
+  options: TransformRequestOptions,
 ): Promise<void> {
   const value = obj[field];
   if (typeof value !== 'string' || value.length === 0) return;
-  obj[field] = await obfuscateText(value, renameMap, stats, label);
+  obj[field] = await obfuscateText(value, renameMap, stats, label, options);
 }
 
-async function obfuscateText(text: string, renameMap: RenameMap, stats: TransformStats, label: string): Promise<string> {
+async function obfuscateText(
+  text: string,
+  renameMap: RenameMap,
+  stats: TransformStats,
+  label: string,
+  options: TransformRequestOptions,
+): Promise<string> {
   stats.blocksScanned += 1;
+  if (options.mode === 'coherent' && options.coherentSession) {
+    try {
+      const result = await options.coherentSession.transform(label, text);
+      if (result.validation.valid) {
+        stats.blocksRenamed += 1;
+        stats.totalIdentifiersRenamed += result.renamedCount;
+        stats.coherentBlocks = (stats.coherentBlocks ?? 0) + 1;
+        if (!stats.coherentDomains?.includes(result.plan.domain.id)) stats.coherentDomains?.push(result.plan.domain.id);
+        stats.blocks.push({ label, renamedCount: result.renamedCount });
+        return result.output;
+      }
+    } catch {
+      stats.coherentFallbacks = (stats.coherentFallbacks ?? 0) + 1;
+    }
+  }
   const result = await obfuscateCode(text, renameMap);
   if (result.renamed) {
     stats.blocksRenamed += 1;

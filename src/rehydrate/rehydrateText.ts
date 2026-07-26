@@ -1,4 +1,5 @@
 import type { RenameMap } from '../obfuscate/renameMap.js';
+import type { CoherentCoverStorySession } from '../session.js';
 
 // Captures an optional "key: " immediately preceding a synthetic token
 // (identifier, colon, whitespace — as literally written), alongside the
@@ -13,10 +14,14 @@ function buildReverseRegex(renameMap: RenameMap): RegExp | null {
   return new RegExp(`\\b((?:[A-Za-z_$][\\w$]*\\s*:\\s*)?)(${escaped.join('|')})\\b`, 'g');
 }
 
-export function rehydrateText(text: string, renameMap: RenameMap): string {
+export function rehydrateText(
+  text: string,
+  renameMap: RenameMap,
+  coherentSession?: CoherentCoverStorySession,
+): string {
   const regex = buildReverseRegex(renameMap);
-  if (!regex) return text;
-  return text.replace(regex, (_match, prefix: string, synthetic: string) => {
+  const poolRehydrated = regex
+    ? text.replace(regex, (_match, prefix: string, synthetic: string) => {
     const original = renameMap.reverseLookup(synthetic) ?? synthetic;
     if (!prefix) return original;
     const key = prefix.replace(/\s*:\s*$/, '');
@@ -27,5 +32,7 @@ export function rehydrateText(text: string, renameMap: RenameMap): string {
     // The key equals the value's real name — this is our own
     // shorthand-expansion round-tripping, so collapse it back to `{ key }`.
     return key === original ? original : `${prefix}${original}`;
-  });
+  })
+    : text;
+  return coherentSession ? coherentSession.rehydrateText(poolRehydrated) : poolRehydrated;
 }
