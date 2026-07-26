@@ -81,6 +81,13 @@ export interface CoherentCoverStoryResult {
   commentsRewritten: number;
 }
 
+export interface CoherentCoverStoryOptions {
+  reservedIdentifierNames?: Iterable<string>;
+  reservedStringValues?: Iterable<string>;
+  existingIdentifiers?: ReadonlyMap<string, string>;
+  existingStrings?: ReadonlyMap<string, string>;
+}
+
 export async function validateCoherentCoverStoryOutput(output: string, plan: CoverStoryPlan): Promise<CoverStoryValidation> {
   const parser = await getParser(plan.dialect);
   return validateCoverStory(output, plan, parser);
@@ -227,7 +234,10 @@ const RESERVED_GLOBALS = new Set([
   'undefined', 'null', 'true', 'false', 'NaN', 'Infinity', 'Error', 'RegExp', 'Readonly', 'Record', 'Partial',
 ]);
 
-export async function transformCoherentCoverStory(source: string): Promise<CoherentCoverStoryResult> {
+export async function transformCoherentCoverStory(
+  source: string,
+  options: CoherentCoverStoryOptions = {},
+): Promise<CoherentCoverStoryResult> {
   const dialect: Dialect = source.includes('<') && source.includes('>') ? 'tsx' : 'typescript';
   const parser = await getParser(dialect);
   const originalTree = parser.parse(source);
@@ -236,7 +246,7 @@ export async function transformCoherentCoverStory(source: string): Promise<Coher
   const shape = inferStructuralShape(originalTree.rootNode);
   const domain = chooseDomain(shape);
   const candidates = collectNameCandidates(originalTree.rootNode);
-  const identifierMappings = allocateIdentifierMappings(candidates, domain, source);
+  const identifierMappings = allocateIdentifierMappings(candidates, domain, source, options);
   const identifierMap = new Map(identifierMappings.map((mapping) => [mapping.original, mapping.synthetic]));
   const reverseIdentifiers = new Map(identifierMappings.map((mapping) => [mapping.synthetic, mapping.original]));
 
@@ -247,7 +257,8 @@ export async function transformCoherentCoverStory(source: string): Promise<Coher
   let commentIndex = 0;
   let stringIndex = 0;
   const fakeStringByOriginal = new Map<string, string>();
-  const usedFakeStrings = new Set<string>();
+  const usedFakeStrings = new Set(options.reservedStringValues ?? []);
+  for (const value of options.existingStrings?.values() ?? []) usedFakeStrings.add(value);
   walk(originalTree.rootNode, (node) => {
     if (node.type === 'comment') {
       const fake = renderComment(domain, shape, commentIndex++);
@@ -257,7 +268,7 @@ export async function transformCoherentCoverStory(source: string): Promise<Coher
     }
     if (node.type === 'string' && !isModuleSource(node) && isLookupPropertyString(node)) {
       const originalValue = node.text.slice(1, -1);
-      const fakeValue = identifierMap.get(originalValue) ?? allocateFakeString(domain, stringIndex++, usedFakeStrings);
+      const fakeValue = options.existingStrings?.get(originalValue) ?? identifierMap.get(originalValue) ?? allocateFakeString(domain, stringIndex++, usedFakeStrings);
       usedFakeStrings.add(fakeValue);
       const quote = node.text[0] ?? '"';
       const fake = `${quote}${fakeValue}${quote}`;
@@ -267,7 +278,7 @@ export async function transformCoherentCoverStory(source: string): Promise<Coher
     }
     if (node.type === 'string' && !isModuleSource(node)) {
       const originalValue = node.text.slice(1, -1);
-      const fakeValue = fakeStringByOriginal.get(originalValue) ?? allocateFakeString(domain, stringIndex++, usedFakeStrings);
+      const fakeValue = fakeStringByOriginal.get(originalValue) ?? options.existingStrings?.get(originalValue) ?? allocateFakeString(domain, stringIndex++, usedFakeStrings);
       fakeStringByOriginal.set(originalValue, fakeValue);
       usedFakeStrings.add(fakeValue);
       const quote = node.text[0] ?? '"';
@@ -432,9 +443,15 @@ function collectNameCandidates(root: Parser.SyntaxNode): NameCandidate[] {
   return [...candidates.values()];
 }
 
-function allocateIdentifierMappings(candidates: NameCandidate[], domain: CoverStoryDomain, source: string): CoverStoryMapping[] {
+function allocateIdentifierMappings(
+  candidates: NameCandidate[],
+  domain: CoverStoryDomain,
+  source: string,
+  options: CoherentCoverStoryOptions,
+): CoverStoryMapping[] {
   const forbidden = new Set(source.match(/[A-Za-z_$][\w$]*/g) ?? []);
-  const used = new Set<string>();
+  const used = new Set(options.reservedIdentifierNames ?? []);
+  for (const value of options.existingIdentifiers?.values() ?? []) used.add(value);
   let functionIndex = 0;
   let typeIndex = 0;
   let classIndex = 0;
@@ -444,6 +461,11 @@ function allocateIdentifierMappings(candidates: NameCandidate[], domain: CoverSt
   let variableIndex = 0;
   const mappings: CoverStoryMapping[] = [];
   for (const candidate of candidates) {
+    const existing = options.existingIdentifiers?.get(candidate.original);
+    if (existing) {
+      mappings.push({ original: candidate.original, synthetic: existing, kind: 'identifier' });
+      continue;
+    }
     const list = candidate.category === 'function'
       ? domain.functionPrefixes
       : candidate.category === 'type'
