@@ -136,6 +136,30 @@ describe('coherent mode integration', () => {
     expect(inputs[1].cwd).toBe('workspace');
   });
 
+  it('aliases a path whose first appearance is in Bash output', async () => {
+    const originalPath = 'src/healthcare/prior-authorization.ts';
+    const session = new CoherentCoverStorySession();
+    const body = {
+      messages: [
+        {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 'bash', name: 'Bash', input: { command: 'find src -name "*.ts"' } }],
+        },
+        {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'bash', content: `src/healthcare/\n${originalPath}\n` }],
+        },
+      ],
+    };
+    const result = await transformRequestBody(body, new RenameMap(), {
+      mode: 'coherent',
+      coherentSession: session,
+    });
+    expect(JSON.stringify(result.body)).not.toContain(originalPath);
+    expect(JSON.stringify(result.body)).toContain('source.ts');
+    expect(session.rehydrateText('source.ts')).toBe(originalPath);
+  });
+
   it('reserves synthetic names across different files in one session', async () => {
     const session = new CoherentCoverStorySession();
     const first = await session.transform('src/first.ts', 'export function first(value: number): number { return value + 1; }');

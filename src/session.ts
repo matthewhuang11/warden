@@ -1,4 +1,5 @@
 import { RenameMap } from './obfuscate/renameMap.js';
+import { dirname } from 'node:path';
 import {
   transformCoherentCoverStory,
   type CoverStoryPlan,
@@ -145,6 +146,35 @@ export class CoherentCoverStorySession {
     return output;
   }
 
+  /**
+   * Discovers only path-shaped tokens that appear in tool output or prose.
+   * This is intentionally conservative: arbitrary words are not treated as
+   * paths, and URLs/package names are left alone.
+   */
+  discoverAndAliasPathsInText(text: string): string {
+    this.purgeExpired();
+    const candidates = new Set<string>();
+    const collect = (pattern: RegExp) => {
+      for (const match of text.matchAll(pattern)) {
+        const candidate = match[1];
+        if (!candidate || candidate.startsWith('//') || candidate.includes('://')) continue;
+        candidates.add(candidate);
+      }
+    };
+
+    collect(PATH_FILE_PATTERN);
+    collect(PATH_DIRECTORY_PATTERN);
+    for (const candidate of candidates) {
+      if (candidate.endsWith('/')) {
+        this.aliasDirectory(candidate.slice(0, -1));
+      } else {
+        this.aliasDirectory(dirname(candidate));
+        this.aliasPath(candidate);
+      }
+    }
+    return this.aliasPathsInText(text);
+  }
+
   rehydrateText(text: string): string {
     this.purgeExpired();
     const now = Date.now();
@@ -206,6 +236,9 @@ export class CoherentCoverStorySession {
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+const PATH_FILE_PATTERN = /(?<![A-Za-z0-9_$])((?:\/|\.\.?\/|[A-Za-z0-9_-]+\/)(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.[A-Za-z0-9]+)(?![A-Za-z0-9_$])/g;
+const PATH_DIRECTORY_PATTERN = /(?<![A-Za-z0-9_$])((?:\/|\.\.?\/|[A-Za-z0-9_-]+\/)(?:[A-Za-z0-9_.-]+\/)+)(?![A-Za-z0-9_$])/g;
 
 export const coherentCoverStorySession = new CoherentCoverStorySession(
   config.maxSessionMappings,

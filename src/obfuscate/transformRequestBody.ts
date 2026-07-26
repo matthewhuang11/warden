@@ -73,11 +73,10 @@ export async function transformRequestBody(
     return { body, stats };
   }
 
-  if (options.mode === 'coherent' && options.coherentSession) {
-    aliasCoherentPaths(body.messages, options.coherentSession);
-  }
-
   const toolCallById = buildToolCallById(body.messages);
+  if (options.mode === 'coherent' && options.coherentSession) {
+    aliasCoherentPaths(body.messages, toolCallById, options.coherentSession);
+  }
 
   for (const message of body.messages) {
     if (!isRecord(message) || !Array.isArray(message.content)) continue;
@@ -164,7 +163,11 @@ function deriveLabel(toolName: string, input: Record<string, unknown>): string {
   return toolName;
 }
 
-function aliasCoherentPaths(messages: unknown[], session: CoherentCoverStorySession): void {
+function aliasCoherentPaths(
+  messages: unknown[],
+  toolCallById: Map<string, ToolCall>,
+  session: CoherentCoverStorySession,
+): void {
   for (const message of messages) {
     if (!isRecord(message) || !Array.isArray(message.content)) continue;
     for (const block of message.content) {
@@ -179,22 +182,31 @@ function aliasCoherentPaths(messages: unknown[], session: CoherentCoverStorySess
           if (typeof block.input[field] === 'string') {
             const value = block.input[field] as string;
             if (field === 'cwd' || field === 'directory') session.aliasDirectory(value);
-            block.input[field] = session.aliasPathsInText(value);
+            block.input[field] = session.discoverAndAliasPathsInText(value);
           }
         }
       }
-      replaceAliasedPathsInTextBlocks(block, session);
+      const toolCall = typeof block.tool_use_id === 'string' ? toolCallById.get(block.tool_use_id) : undefined;
+      const discoverPaths = block.type !== 'tool_result' || toolCall?.name === 'Bash';
+      replaceAliasedPathsInTextBlocks(block, session, discoverPaths);
     }
   }
 }
 
-function replaceAliasedPathsInTextBlocks(block: Record<string, unknown>, session: CoherentCoverStorySession): void {
-  if (typeof block.text === 'string') block.text = session.aliasPathsInText(block.text);
-  if (typeof block.content === 'string') block.content = session.aliasPathsInText(block.content);
+function replaceAliasedPathsInTextBlocks(
+  block: Record<string, unknown>,
+  session: CoherentCoverStorySession,
+  discoverPaths: boolean,
+): void {
+  const rewrite = (text: string) => discoverPaths
+    ? session.discoverAndAliasPathsInText(text)
+    : session.aliasPathsInText(text);
+  if (typeof block.text === 'string') block.text = rewrite(block.text);
+  if (typeof block.content === 'string') block.content = rewrite(block.content);
   if (Array.isArray(block.content)) {
     for (const inner of block.content) {
       if (isRecord(inner) && typeof inner.text === 'string') {
-        inner.text = session.aliasPathsInText(inner.text);
+        inner.text = rewrite(inner.text);
       }
     }
   }
