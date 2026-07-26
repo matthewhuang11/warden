@@ -21,6 +21,7 @@
     "fuzz": "bash scripts/fuzz.sh",
     "fuzz:batch": "bash scripts/fuzz-batch.sh",
     "stealth:harness": "npm run build && tsx scripts/stealth-harness.ts",
+    "local:model-harness": "tsx scripts/local-model-cover-story-harness.ts",
     "verify": "bash scripts/verify.sh",
     "verify:package": "node scripts/verify-package.mjs",
     "start": "node dist/index.js",

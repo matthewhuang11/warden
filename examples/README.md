@@ -54,6 +54,21 @@ adapter can rewrite comments before emission; this trades streaming latency
 for semantic comment rehydration. Remote endpoints require
 `WARDEN_COVER_STORY_COMMENT_MODEL_ALLOW_REMOTE=1`.
 
+For a direct local-model A/B check, use the repeatable harness:
+
+```bash
+export WARDEN_LOCAL_MODEL_URL='http://127.0.0.1:1234/v1/chat/completions'
+export WARDEN_LOCAL_MODEL='your-local-model'
+npm run local:model-harness -- --runs 1
+```
+
+This sends original, pool-based, and coherent-cover-story versions of each
+fixture to the configured local endpoint, saves the literal responses under
+`.warden/local-model-runs/`, and writes a summary. Its naming/comment flags
+are heuristic diagnostics only, not a model verdict. Use `--fixture` to
+isolate one fixture and `--dry-run` to verify argument parsing without a
+model call.
+
 ## Tuning set
 
 - `fixtures/tuning/fintech/credit-line-policy.ts` evaluates revolving credit capacity.
