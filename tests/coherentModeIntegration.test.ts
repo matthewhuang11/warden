@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { describe, expect, it, vi } from 'vitest';
 import { readConfig } from '../src/config.js';
 import { transformRequestBody } from '../src/obfuscate/transformRequestBody.js';
@@ -82,6 +83,17 @@ describe('coherent mode integration', () => {
     expect(collisions).toEqual([]);
     expect(session.rehydrateText(first.output)).toContain('first(value: number)');
     expect(session.rehydrateText(second.output)).toContain('second(value: number)');
+  });
+
+  it('uses fresh cover vocabulary instead of numeric suffixes across held-out domains', async () => {
+    const session = new CoherentCoverStorySession();
+    const firstSource = await readFile('examples/fixtures/held-out/fintech/merchant-payout-schedule.ts', 'utf8');
+    const secondSource = await readFile('examples/fixtures/held-out/healthtech/specialty-referral-routing.ts', 'utf8');
+    await session.transform('source.ts', firstSource);
+    const second = await session.transform('source.ts', secondSource);
+
+    expect(second.output).not.toMatch(/[A-Za-z_$][\w$]*(?:2|_[2-9])\b/);
+    expect(session.rehydrateText(second.output)).toBe(secondSource);
   });
 
   it('rehydrates coherent names inside buffered JSON and SSE', async () => {

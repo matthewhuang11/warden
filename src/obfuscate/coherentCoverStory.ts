@@ -507,6 +507,16 @@ function allocateIdentifierMappings(
   const forbidden = new Set(source.match(/[A-Za-z_$][\w$]*/g) ?? []);
   const used = new Set(options.reservedIdentifierNames ?? []);
   for (const value of options.existingIdentifiers?.values() ?? []) used.add(value);
+  const fallbackNames = [
+    ...domain.numberProperties,
+    ...domain.booleanProperties,
+    ...domain.enumProperties,
+    ...domain.variables,
+    ...domain.booleanVariables,
+    ...domain.functionPrefixes,
+    ...domain.typePrefixes,
+    ...domain.classNames,
+  ];
   let functionIndex = 0;
   let typeIndex = 0;
   let classIndex = 0;
@@ -552,8 +562,9 @@ function allocateIdentifierMappings(
                 ? numberIndex++
                 : variableIndex++;
     let synthetic: string | undefined;
-    for (let offset = 0; offset < list.length; offset++) {
-      const candidateName = list[(index + offset) % list.length];
+    const namePool = [...new Set([...list, ...fallbackNames])];
+    for (let offset = 0; offset < namePool.length; offset++) {
+      const candidateName = namePool[(index + offset) % namePool.length];
       if (!used.has(candidateName) && (!forbidden.has(candidateName) || candidateName === candidate.original)) {
         synthetic = candidateName;
         break;
@@ -593,7 +604,16 @@ function classifyProperty(typeNode: Parser.SyntaxNode | null): string {
 }
 
 function allocateFakeString(domain: CoverStoryDomain, index: number, used: Set<string>): string {
-  const base = domain.enumValues[index % domain.enumValues.length] ?? `${domain.noun}_note`;
+  const values = [...new Set([
+    ...domain.enumValues,
+    ...domain.vocabulary.map((word) => `${word}_${domain.statusNoun}`),
+    ...domain.vocabulary.map((word) => `${domain.statusNoun}_${word}`),
+  ])];
+  for (let offset = 0; offset < values.length; offset++) {
+    const candidate = values[(index + offset) % values.length];
+    if (!used.has(candidate)) return candidate;
+  }
+  const base = values[index % values.length] ?? `${domain.noun}_note`;
   let candidate = base;
   let suffix = 2;
   while (used.has(candidate)) candidate = `${base}_${suffix++}`;
