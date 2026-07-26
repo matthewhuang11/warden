@@ -29,6 +29,14 @@ export WARDEN_COVER_STORY_MODE=coherent
 npm run stealth:harness -- --direct-api --fixture examples/fixtures/tuning/healthtech/prior-authorization.ts --runs 1
 ```
 
+In coherent mode, known local `file_path` values are presented to the model
+as neutral session aliases such as `source.ts`; related `cwd`, directory, and
+command fields are rewritten when they contain a known path, and model tool
+calls are rehydrated before Claude Code executes them. Pool mode keeps the
+existing exact-path behavior for comparison. Unknown paths that have not
+appeared in a recognized tool field remain outside this prototype's alias
+registry.
+
 ## Tuning set
 
 - `fixtures/tuning/fintech/credit-line-policy.ts` evaluates revolving credit capacity.
