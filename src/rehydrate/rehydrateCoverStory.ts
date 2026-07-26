@@ -4,6 +4,11 @@ export interface RehydrateCoverStoryOptions {
   includeAddedCommentTerms?: boolean;
 }
 
+export interface UnrehydratedCoverStoryTerm {
+  term: string;
+  comment: string;
+}
+
 /**
  * Rehydrates a coherent-cover-story response without changing the existing
  * RenameMap path. Known generated comments are restored exactly. Comments
@@ -34,6 +39,30 @@ export function rehydrateAddedCommentTermsForPlans(text: string, plans: readonly
     const plan = selectCommentPlan(comment, plans);
     return plan ? replaceCommentTerms(comment, plan.commentTerms) : comment;
   });
+}
+
+/**
+ * Reports fake-domain vocabulary that remains in model-added comments after
+ * deterministic term replacement. A future local/approved LLM adapter can
+ * use this bounded list as its rewrite queue without receiving source code.
+ */
+export function findUnrehydratedCoverStoryTerms(
+  text: string,
+  plans: readonly CoverStoryPlan[],
+): UnrehydratedCoverStoryTerm[] {
+  const knownOriginalComments = new Set(plans.flatMap((plan) => [...plan.reverseComments.values()]));
+  const results: UnrehydratedCoverStoryTerm[] = [];
+  text.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (comment) => {
+    if (knownOriginalComments.has(comment)) return comment;
+    const plan = selectCommentPlan(comment, plans);
+    if (!plan) return comment;
+    const rewritten = replaceCommentTerms(comment, plan.commentTerms);
+    for (const term of plan.domain.vocabulary) {
+      if (hasWord(rewritten, term)) results.push({ term, comment });
+    }
+    return comment;
+  });
+  return results;
 }
 
 function outputComments(text: string, plan: CoverStoryPlan): string {
@@ -96,6 +125,9 @@ function selectCommentPlan(comment: string, plans: readonly CoverStoryPlan[]): C
     let score = 0;
     for (const term of plan.commentTerms.keys()) {
       if (hasWord(comment, term)) score += 2;
+    }
+    for (const term of plan.domain.vocabulary) {
+      if (hasWord(comment, term)) score += 1;
     }
     for (const synthetic of plan.reverseIdentifiers.keys()) {
       if (hasWord(comment, synthetic)) score += 4;

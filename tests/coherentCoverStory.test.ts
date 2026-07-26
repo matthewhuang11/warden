@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { transformCoherentCoverStory, validateCoherentCoverStoryOutput } from '../src/obfuscate/coherentCoverStory.js';
-import { rehydrateCoverStoryText } from '../src/rehydrate/rehydrateCoverStory.js';
+import { findUnrehydratedCoverStoryTerms, rehydrateCoverStoryText } from '../src/rehydrate/rehydrateCoverStory.js';
 
 const fixturePaths = [
   'examples/fixtures/tuning/fintech/settlement-reserve.ts',
@@ -103,6 +103,19 @@ describe('coherent cover story mode', () => {
     const result = await transformCoherentCoverStory(source);
 
     expect(rehydrateCoverStoryText(result.output, result.plan)).toBe(source);
+  });
+
+  it('reports novel fake-domain comment terms for a future semantic adapter', async () => {
+    const source = 'export function chooseWork(value: number): number { return value + 1; }';
+    const result = await transformCoherentCoverStory(source);
+    const unresolvedTerm = result.plan.domain.vocabulary.find((term) => !result.plan.commentTerms.has(term));
+    expect(unresolvedTerm).toBeDefined();
+    const addedComment = `// Check the ${unresolvedTerm} before the next ${result.plan.domain.action}ing step.`;
+    const response = `${result.output}\n${addedComment}`;
+
+    const diagnostics = findUnrehydratedCoverStoryTerms(response, [result.plan]);
+
+    expect(diagnostics).toEqual([{ term: unresolvedTerm, comment: addedComment }]);
   });
 
   it('flags a second catalog vocabulary before the output can be sent upstream', async () => {

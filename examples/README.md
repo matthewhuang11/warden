@@ -37,6 +37,12 @@ existing exact-path behavior for comparison. Unknown paths that have not
 appeared in a recognized tool field remain outside this prototype's alias
 registry.
 
+Known generated comments are restored exactly. Comments added by the model
+receive deterministic term replacement when they mention a mapped structural
+role; `findUnrehydratedCoverStoryTerms` reports remaining fake-domain terms
+for a future local or approved LLM comment adapter. That adapter is an actual
+model call and is intentionally not part of the current deterministic path.
+
 ## Tuning set
 
 - `fixtures/tuning/fintech/credit-line-policy.ts` evaluates revolving credit capacity.
