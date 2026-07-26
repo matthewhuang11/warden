@@ -300,7 +300,7 @@ export async function transformCoherentCoverStory(
       stringMappings.push({ original: originalTemplate, synthetic: fakeTemplate, kind: 'string' });
       return;
     }
-    if (node.type === 'string' && !isModuleSource(node) && isLookupPropertyString(node)) {
+    if (node.type === 'string' && shouldRewriteString(node) && isLookupPropertyString(node)) {
       const originalValue = node.text.slice(1, -1);
       const fakeValue = options.existingStrings?.get(originalValue) ?? identifierMap.get(originalValue) ?? allocateFakeString(domain, stringIndex++, usedFakeStrings);
       usedFakeStrings.add(fakeValue);
@@ -310,9 +310,13 @@ export async function transformCoherentCoverStory(
       stringMappings.push({ original: node.text, synthetic: fake, kind: 'string' });
       return;
     }
-    if (node.type === 'string' && !isModuleSource(node)) {
+    if (node.type === 'string' && shouldRewriteString(node)) {
       const originalValue = node.text.slice(1, -1);
-      const fakeValue = fakeStringByOriginal.get(originalValue) ?? options.existingStrings?.get(originalValue) ?? allocateFakeString(domain, stringIndex++, usedFakeStrings);
+      const fakeValue = fakeStringByOriginal.get(originalValue)
+        ?? options.existingStrings?.get(originalValue)
+        ?? (isLocalModuleSource(node)
+          ? allocateFakeModuleSpecifier(domain, originalValue, stringIndex++, usedFakeStrings)
+          : allocateFakeString(domain, stringIndex++, usedFakeStrings));
       fakeStringByOriginal.set(originalValue, fakeValue);
       usedFakeStrings.add(fakeValue);
       const quote = node.text[0] ?? '"';
@@ -717,6 +721,33 @@ function allocateFakeString(domain: CoverStoryDomain, index: number, used: Set<s
   return candidate;
 }
 
+function allocateFakeModuleSpecifier(
+  domain: CoverStoryDomain,
+  original: string,
+  index: number,
+  used: Set<string>,
+): string {
+  const prefix = original.startsWith('/')
+    ? '/'
+    : original.match(/^(?:\.\.\/|\.\/)+/)?.[0] ?? './';
+  const extension = original.match(/\.[A-Za-z0-9]+$/)?.[0] ?? '';
+  const values = [...new Set([
+    ...domain.noun.split(' ').filter(Boolean),
+    domain.statusNoun,
+    ...domain.vocabulary,
+  ])];
+  for (let offset = 0; offset < values.length; offset++) {
+    const stem = values[(index + offset) % values.length];
+    const candidate = `${prefix}${stem}-${domain.statusNoun}${extension}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  const base = `${prefix}${domain.noun.replace(/\s+/g, '-')}-${domain.statusNoun}${extension}`;
+  let candidate = base;
+  let suffix = 2;
+  while (used.has(candidate)) candidate = `${base.replace(extension, '')}-${suffix++}${extension}`;
+  return candidate;
+}
+
 function renderTemplate(
   domain: CoverStoryDomain,
   node: Parser.SyntaxNode,
@@ -765,6 +796,16 @@ function allocateFakeComment(
 function isModuleSource(node: Parser.SyntaxNode): boolean {
   const parent = node.parent;
   return (parent?.type === 'import_statement' || parent?.type === 'export_statement') && parent.childForFieldName('source')?.id === node.id;
+}
+
+function isLocalModuleSource(node: Parser.SyntaxNode): boolean {
+  if (!isModuleSource(node)) return false;
+  const value = node.text.slice(1, -1);
+  return value.startsWith('./') || value.startsWith('../') || value.startsWith('/');
+}
+
+function shouldRewriteString(node: Parser.SyntaxNode): boolean {
+  return !isModuleSource(node) || isLocalModuleSource(node);
 }
 
 function isLookupPropertyString(node: Parser.SyntaxNode): boolean {

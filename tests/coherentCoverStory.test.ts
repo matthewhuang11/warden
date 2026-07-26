@@ -134,9 +134,10 @@ describe('coherent cover story mode', () => {
     expect(rehydrateCoverStoryText(result.output, result.plan)).toBe(source);
   });
 
-  it('keeps module sources intact while consistently remapping repeated literals', async () => {
+  it('rewrites local module sources while preserving external package imports', async () => {
     const source = [
-      "import { loadState } from './real-module';",
+      "import { loadState } from './healthcare/real-module';",
+      "import React from 'react';",
       "export function readState(state: 'ready' | 'blocked'): string {",
       "  if (state === 'ready') return 'ready';",
       "  return 'blocked';",
@@ -146,7 +147,8 @@ describe('coherent cover story mode', () => {
     const readyMappings = result.plan.stringMappings.filter((mapping) => mapping.original === "'ready'");
 
     expect(result.validation.valid, result.validation.reason ?? undefined).toBe(true);
-    expect(result.output).toContain("'./real-module'");
+    expect(result.output).not.toContain("'./healthcare/real-module'");
+    expect(result.output).toContain("'react'");
     expect(new Set(readyMappings.map((mapping) => mapping.synthetic))).toHaveLength(1);
     expect(result.output).not.toContain("'ready'");
     expect(rehydrateCoverStoryText(result.output, result.plan)).toBe(source);
