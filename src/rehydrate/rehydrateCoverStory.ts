@@ -91,7 +91,12 @@ export async function rehydrateUnresolvedCoverStoryComments(
     if (!plan) return comment;
     const unresolvedTerms = plan.domain.vocabulary.filter((term) => hasWord(comment, term) && !plan.commentTerms.has(term));
     if (unresolvedTerms.length === 0) return comment;
-    const rewritten = await adapter.rewriteComment(comment, { plan, unresolvedTerms });
+    let rewritten: string | null;
+    try {
+      rewritten = await adapter.rewriteComment(comment, { plan, unresolvedTerms });
+    } catch {
+      return comment;
+    }
     if (!isCommentText(rewritten) || plan.domain.vocabulary.some((term) => hasWord(rewritten, term))) return comment;
     return rewritten;
   });

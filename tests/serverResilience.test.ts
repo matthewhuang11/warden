@@ -24,6 +24,8 @@ const originalMaxRequestBodyBytes = config.maxRequestBodyBytes;
 const originalMaxBufferedResponseBytes = config.maxBufferedResponseBytes;
 const originalMaxSseResponseBytes = config.maxSseResponseBytes;
 const originalCoverStoryMode = config.coverStoryMode;
+const originalCommentModelUrl = process.env.WARDEN_COVER_STORY_COMMENT_MODEL_URL;
+const originalCommentModel = process.env.WARDEN_COVER_STORY_COMMENT_MODEL;
 
 const openServers: Server[] = [];
 
@@ -35,6 +37,10 @@ afterEach(async () => {
   config.maxBufferedResponseBytes = originalMaxBufferedResponseBytes;
   config.maxSseResponseBytes = originalMaxSseResponseBytes;
   config.coverStoryMode = originalCoverStoryMode;
+  if (originalCommentModelUrl === undefined) delete process.env.WARDEN_COVER_STORY_COMMENT_MODEL_URL;
+  else process.env.WARDEN_COVER_STORY_COMMENT_MODEL_URL = originalCommentModelUrl;
+  if (originalCommentModel === undefined) delete process.env.WARDEN_COVER_STORY_COMMENT_MODEL;
+  else process.env.WARDEN_COVER_STORY_COMMENT_MODEL = originalCommentModel;
   await Promise.all(openServers.splice(0).map(close));
 });
 
@@ -70,6 +76,48 @@ describe('malformed and unexpected request bodies', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
+  });
+
+  it('uses the opt-in local comment adapter for buffered JSON responses', async () => {
+    config.coverStoryMode = 'coherent';
+    let adapterCalls = 0;
+    const adapterServer = createServer((_req, res) => {
+      adapterCalls++;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ choices: [{ message: { content: '// Check the original decision.' } }] }));
+    });
+    openServers.push(adapterServer);
+    const adapterUrl = await listen(adapterServer);
+    process.env.WARDEN_COVER_STORY_COMMENT_MODEL_URL = `${adapterUrl}/v1/chat/completions`;
+    process.env.WARDEN_COVER_STORY_COMMENT_MODEL = 'test-local-model';
+
+    const source = [
+      'export function decide(value: number): number {',
+      '  if (value > 1) return value;',
+      '  if (value > 2) return value;',
+      '  if (value > 3) return value;',
+      '  return 0;',
+      '}',
+    ].join('\n');
+    const { proxyUrl } = await startProxyWithUpstream((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ content: [{ type: 'text', text: '// Check the parcel capacity before dispatching the lane.' }] }));
+    });
+
+    const res = await fetch(`${proxyUrl}/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        messages: [
+          { role: 'assistant', content: [{ type: 'tool_use', id: 'read-1', name: 'Read', input: { file_path: '/workspace/source.ts' } }] },
+          { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'read-1', content: [{ type: 'text', text: source }] }] },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(adapterCalls).toBe(1);
+    expect(await res.json()).toEqual({ content: [{ type: 'text', text: '// Check the original decision.' }] });
   });
 
   it.each([

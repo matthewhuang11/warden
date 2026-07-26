@@ -40,8 +40,17 @@ registry.
 Known generated comments are restored exactly. Comments added by the model
 receive deterministic term replacement when they mention a mapped structural
 role; `findUnrehydratedCoverStoryTerms` reports remaining fake-domain terms
-for a future local or approved LLM comment adapter. That adapter is an actual
-model call and is intentionally not part of the current deterministic path.
+for a future local or approved LLM comment adapter. To enable the opt-in
+buffered-response adapter against an OpenAI-compatible local endpoint:
+
+```bash
+export WARDEN_COVER_STORY_COMMENT_MODEL_URL='http://127.0.0.1:1234/v1/chat/completions'
+export WARDEN_COVER_STORY_COMMENT_MODEL='your-local-model'
+```
+
+The adapter is an actual model call, is disabled when the URL is absent, and
+does not run on streamed SSE responses. Remote endpoints require
+`WARDEN_COVER_STORY_COMMENT_MODEL_ALLOW_REMOTE=1`.
 
 ## Tuning set
 

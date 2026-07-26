@@ -8,7 +8,8 @@ import { logger } from './log.js';
 import { transformRequestBody } from './obfuscate/transformRequestBody.js';
 import { coherentCoverStorySession, sessionRenameMap } from './session.js';
 import { rehydrateSseStream } from './rehydrate/sseRehydrate.js';
-import { rehydrateJsonValue } from './rehydrate/rehydrateJson.js';
+import { rehydrateJsonValue, rehydrateJsonValueWithCommentAdapter } from './rehydrate/rehydrateJson.js';
+import { createConfiguredLocalCommentAdapter } from './rehydrate/localCommentAdapter.js';
 import {
   printExchangeRequestMarker,
   printExchangeResponseMarker,
@@ -443,13 +444,11 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
     let output = rawText;
     try {
       const parsed = JSON.parse(rawText);
-      output = JSON.stringify(
-        rehydrateJsonValue(
-          parsed,
-          sessionRenameMap,
-          config.coverStoryMode === 'coherent' ? coherentCoverStorySession : undefined,
-        ),
-      );
+      const commentAdapter = config.coverStoryMode === 'coherent' ? createConfiguredLocalCommentAdapter() : undefined;
+      const rehydrated = commentAdapter
+        ? await rehydrateJsonValueWithCommentAdapter(parsed, sessionRenameMap, coherentCoverStorySession, commentAdapter)
+        : rehydrateJsonValue(parsed, sessionRenameMap, config.coverStoryMode === 'coherent' ? coherentCoverStorySession : undefined);
+      output = JSON.stringify(rehydrated);
     } catch (err) {
       logger.warn('rehydrate.response_not_json', { method, path: logPath, errorType: errorType(err) });
     }
