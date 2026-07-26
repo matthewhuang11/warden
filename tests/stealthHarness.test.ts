@@ -6,6 +6,7 @@ import {
   assertCliAuthStatus,
   buildClaudeArgs,
   buildClaudeEnv,
+  buildDirectApiMessages,
   buildJudgeArgs,
   buildJudgeEnv,
   buildProxyEnv,
@@ -62,6 +63,22 @@ describe('stealth harness guardrails', () => {
     expect(childEnv.ANTHROPIC_API_KEY).toBeUndefined();
     expect(childEnv.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
     expect(childEnv.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:43123');
+  });
+
+  it('selects direct Anthropic API mode and builds a Read tool-result conversation', () => {
+    const config = readHarnessConfig(['--direct-api'], cappedEnv);
+    expect(config.clientMode).toBe('anthropic-api');
+    expect(buildDirectApiMessages(config, 'examples/example.ts', 'const realName = 1;', 1)).toEqual([
+      expect.objectContaining({ role: 'user' }),
+      expect.objectContaining({ role: 'assistant', content: [expect.objectContaining({ type: 'tool_use', name: 'Read' })] }),
+      expect.objectContaining({
+        role: 'user',
+        content: expect.arrayContaining([
+          expect.objectContaining({ type: 'tool_result', content: 'const realName = 1;' }),
+        ]),
+      }),
+    ]);
+    expect(() => readHarnessConfig(['--direct-api', '--use-cli-auth'], cappedEnv)).toThrow(/dedicated API key/);
   });
 
   it('requires a verified stored Claude login in CLI auth mode', () => {

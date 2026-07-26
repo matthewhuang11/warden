@@ -20,6 +20,7 @@ export interface HarnessConfig {
   totalBudgetUsd: number;
   runTimeoutMs: number;
   authMode: 'dedicated-key' | 'cli-login';
+  clientMode: 'claude-cli' | 'anthropic-api';
   testApiKey: string;
   claudeBin: string;
   model: string;
@@ -143,6 +144,8 @@ export function readHarnessConfig(
   const totalBudgetUsd = readRequiredPositiveNumber(env, 'WARDEN_STEALTH_MAX_BUDGET_USD');
   const testApiKey = env.WARDEN_STEALTH_TEST_API_KEY ?? '';
   const authMode = options.useCliAuth ? 'cli-login' : 'dedicated-key';
+  const clientMode = options.directApi ? 'anthropic-api' : 'claude-cli';
+  if (options.directApi && options.useCliAuth) throw new Error('--direct-api requires a dedicated API key, not --use-cli-auth');
   if (!options.dryRun && authMode === 'dedicated-key') validateDedicatedKey(testApiKey, env.ANTHROPIC_API_KEY);
 
   return {
@@ -154,6 +157,7 @@ export function readHarnessConfig(
     totalBudgetUsd,
     runTimeoutMs: readOptionalPositiveInteger(env, 'WARDEN_STEALTH_RUN_TIMEOUT_MS', 5 * 60 * 1000),
     authMode,
+    clientMode,
     testApiKey,
     claudeBin: env.WARDEN_STEALTH_CLAUDE_BIN ?? 'claude',
     model: env.WARDEN_STEALTH_MODEL ?? 'sonnet',
@@ -180,6 +184,34 @@ export function buildClaudeArgs(config: HarnessConfig, fixturePath: string, budg
     '--output-format',
     'json',
     prompt,
+  ];
+}
+
+export function buildDirectApiMessages(config: HarnessConfig, fixturePath: string, source: string, runNumber: number) {
+  const toolUseId = `read-${runNumber}`;
+  return [
+    {
+      role: 'user',
+      content: `Review ${fixturePath} for correctness. The following conversation contains the file returned by the Read tool. ${config.task}`,
+    },
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'tool_use',
+          id: toolUseId,
+          name: 'Read',
+          input: { file_path: fixturePath },
+        },
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        { type: 'tool_result', tool_use_id: toolUseId, content: source },
+        { type: 'text', text: config.task },
+      ],
+    },
   ];
 }
 
@@ -229,6 +261,80 @@ export function buildJudgeEnv(config: HarnessConfig): NodeJS.ProcessEnv {
   const childEnv = buildClaudeEnv(config, 1);
   childEnv.ANTHROPIC_BASE_URL = 'https://api.anthropic.com';
   return childEnv;
+}
+
+async function runDirectAnthropicReview(config: HarnessConfig, fixturePath: string, port: number, runNumber: number): Promise<string> {
+  const source = readFileSync(path.resolve(config.cwd, fixturePath), 'utf8');
+  const response = await fetch(`http://127.0.0.1:${port}/v1/messages`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'anthropic-version': '2023-06-01',
+      'x-api-key': config.testApiKey,
+    },
+    body: JSON.stringify({
+      model: config.model,
+      max_tokens: 2048,
+      tools: [{
+        name: 'Read',
+        description: 'Read a local source file.',
+        input_schema: {
+          type: 'object',
+          properties: { file_path: { type: 'string' } },
+          required: ['file_path'],
+        },
+      }],
+      messages: buildDirectApiMessages(config, fixturePath, source, runNumber),
+    }),
+  });
+  const raw = await response.text();
+  if (!response.ok) throw new Error(`Anthropic API returned ${response.status}: ${raw.slice(-2_000)}`);
+  return extractAnthropicText(raw);
+}
+
+async function runDirectAnthropicJudge(config: HarnessConfig, responseText: string): Promise<JudgeVerdict> {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'anthropic-version': '2023-06-01',
+      'x-api-key': config.testApiKey,
+    },
+    body: JSON.stringify({
+      model: config.judgeModel,
+      max_tokens: 512,
+      temperature: 0,
+      system: JUDGE_SYSTEM_PROMPT,
+      messages: [{
+        role: 'user',
+        content: [
+          'Evaluate the assistant response below using the fixed rubric. Return only the required JSON object.',
+          '<assistant_response>',
+          responseText,
+          '</assistant_response>',
+          `Required JSON schema: ${JUDGE_SCHEMA}`,
+        ].join('\n'),
+      }],
+    }),
+  });
+  const raw = await response.text();
+  if (!response.ok) throw new Error(`Anthropic judge API returned ${response.status}: ${raw.slice(-2_000)}`);
+  const text = extractAnthropicText(raw).trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
+  return parseJudgeVerdict(JSON.stringify({ structured_output: JSON.parse(text) }), responseText);
+}
+
+function extractAnthropicText(raw: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+  if (!isRecord(parsed) || !Array.isArray(parsed.content)) return raw;
+  return parsed.content
+    .filter((block): block is Record<string, unknown> => isRecord(block) && block.type === 'text' && typeof block.text === 'string')
+    .map((block) => block.text as string)
+    .join('');
 }
 
 export function buildProxyEnv(
@@ -376,8 +482,9 @@ const realRuntime: HarnessRuntime = {
     };
   },
 
-  async runClaude(config, fixturePath, port) {
+  async runClaude(config, fixturePath, port, runNumber) {
     const budgetPerCallUsd = config.totalBudgetUsd / (config.fixturePaths.length * config.trialsPerFixture * 2);
+    if (config.clientMode === 'anthropic-api') return runDirectAnthropicReview(config, fixturePath, port, runNumber);
     const child = spawn(config.claudeBin, buildClaudeArgs(config, fixturePath, budgetPerCallUsd), {
       cwd: config.cwd,
       env: buildClaudeEnv(config, port),
@@ -388,6 +495,7 @@ const realRuntime: HarnessRuntime = {
 
   async runJudge(config, responseText) {
     const budgetPerCallUsd = config.totalBudgetUsd / (config.fixturePaths.length * config.trialsPerFixture * 2);
+    if (config.clientMode === 'anthropic-api') return runDirectAnthropicJudge(config, responseText);
     const child = spawn(config.claudeBin, buildJudgeArgs(config, responseText, budgetPerCallUsd), {
       cwd: config.cwd,
       env: buildJudgeEnv(config),
@@ -550,6 +658,7 @@ function parseArgs(
   allTuning: boolean;
   allHeldOut: boolean;
   useCliAuth: boolean;
+  directApi: boolean;
   dryRun: boolean;
 } {
   const options: {
@@ -560,11 +669,13 @@ function parseArgs(
     allTuning: boolean;
     allHeldOut: boolean;
     useCliAuth: boolean;
+    directApi: boolean;
     dryRun: boolean;
   } = {
     allTuning: false,
     allHeldOut: false,
     useCliAuth: false,
+    directApi: false,
     dryRun: false,
   };
   for (let index = 0; index < argv.length; index++) {
@@ -583,6 +694,10 @@ function parseArgs(
     }
     if (arg === '--use-cli-auth') {
       options.useCliAuth = true;
+      continue;
+    }
+    if (arg === '--direct-api') {
+      options.directApi = true;
       continue;
     }
     if (!['--fixture', '--task', '--runs', '--output-dir'].includes(arg)) throw new Error(`Unknown argument: ${arg}`);
@@ -718,13 +833,21 @@ async function main(): Promise<void> {
   const totalTrialPairs = config.fixturePaths.length * config.trialsPerFixture;
   const budgetPerCallUsd = config.totalBudgetUsd / (totalTrialPairs * 2);
   console.log(
-    `Stealth harness: set=${config.fixtureSet} fixtures=${config.fixturePaths.length} trialsPerFixture=${config.trialsPerFixture} totalTrialPairs=${totalTrialPairs} auth=${config.authMode} totalBudgetUsd=${config.totalBudgetUsd.toFixed(2)} output=${config.outputDir}`,
+    `Stealth harness: set=${config.fixtureSet} fixtures=${config.fixturePaths.length} trialsPerFixture=${config.trialsPerFixture} totalTrialPairs=${totalTrialPairs} auth=${config.authMode} client=${config.clientMode} totalBudgetUsd=${config.totalBudgetUsd.toFixed(2)} output=${config.outputDir}`,
   );
   if (config.dryRun) {
     for (const fixturePath of config.fixturePaths) {
-      console.log(`Dry run; reviewer args: ${JSON.stringify(buildClaudeArgs(config, fixturePath, budgetPerCallUsd))}`);
+      if (config.clientMode === 'anthropic-api') {
+        console.log(`Dry run; reviewer client: direct Anthropic Messages API through Warden for ${fixturePath}`);
+      } else {
+        console.log(`Dry run; reviewer args: ${JSON.stringify(buildClaudeArgs(config, fixturePath, budgetPerCallUsd))}`);
+      }
     }
-    console.log(`Dry run; judge args: ${JSON.stringify(buildJudgeArgs(config, '[review response]', budgetPerCallUsd))}`);
+    console.log(
+      config.clientMode === 'anthropic-api'
+        ? 'Dry run; judge client: direct Anthropic Messages API'
+        : `Dry run; judge args: ${JSON.stringify(buildJudgeArgs(config, '[review response]', budgetPerCallUsd))}`,
+    );
     return;
   }
   const captures = await executeHarness(config);

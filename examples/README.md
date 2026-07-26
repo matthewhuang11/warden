@@ -17,6 +17,18 @@ adapter. OAuth-authenticated Claude CLI sessions can ignore
 `ANTHROPIC_BASE_URL`, so the harness now rejects runs when Warden observes no
 request rather than recording a false clean result.
 
+For a valid remote Claude check without relying on Claude CLI routing, use
+`--direct-api`. It sends the reviewer request through the Warden port using
+the dedicated key and leaves the existing CLI mode available for comparison:
+
+```bash
+export WARDEN_STEALTH_MAX_RUNS=1
+export WARDEN_STEALTH_MAX_BUDGET_USD=1
+export WARDEN_STEALTH_TEST_API_KEY='your-dedicated-test-key'
+export WARDEN_COVER_STORY_MODE=coherent
+npm run stealth:harness -- --direct-api --fixture examples/fixtures/tuning/healthtech/prior-authorization.ts --runs 1
+```
+
 ## Tuning set
 
 - `fixtures/tuning/fintech/credit-line-policy.ts` evaluates revolving credit capacity.
