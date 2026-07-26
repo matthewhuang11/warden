@@ -32,6 +32,7 @@ export interface RunningProxy {
   port: number;
   readLogs(): string;
   stop(): Promise<void>;
+  assertObserved?(): void;
 }
 
 export interface TrialCapture {
@@ -268,6 +269,7 @@ export async function executeHarness(
         let responseText: string;
         try {
           responseText = await runtime.runClaude(config, fixturePath, proxy.port, runNumber);
+          proxy.assertObserved?.();
         } catch (error) {
           const capture: TrialCapture = {
             runNumber,
@@ -362,7 +364,16 @@ const realRuntime: HarnessRuntime = {
       process.stderr.write(`[warden] ${String(chunk)}`);
     });
     await waitForPort(port, child, 10_000);
-    return { port, readLogs: () => logs, stop: () => stopChild(child) };
+    return {
+      port,
+      readLogs: () => logs,
+      assertObserved: () => {
+        if (!logs.includes('request.received')) {
+          throw new Error('Warden observed no upstream request; the client may have bypassed ANTHROPIC_BASE_URL');
+        }
+      },
+      stop: () => stopChild(child),
+    };
   },
 
   async runClaude(config, fixturePath, port) {
