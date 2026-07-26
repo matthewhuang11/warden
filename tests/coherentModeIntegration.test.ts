@@ -71,6 +71,24 @@ describe('coherent mode integration', () => {
     expect(session.size).toBe(2);
   });
 
+  it('keeps private fields and templates stable across turns and files', async () => {
+    const source = [
+      'class WorkBox {',
+      '  #currentValue = 0;',
+      '  describe(name: string): string { return `Confidential workflow for ${name}`; }',
+      '}',
+    ].join('\n');
+    const session = new CoherentCoverStorySession();
+    const first = await session.transform('src/work.ts', source);
+    const second = await session.transform('src/work.ts', source);
+    const neighboring = await session.transform('src/other.ts', 'export function other(value: number): number { return value + 1; }');
+
+    expect(second.output).toBe(first.output);
+    expect(session.rehydrateText(second.output)).toBe(source);
+    expect(session.rehydrateText(neighboring.output)).toContain('other(value: number)');
+    expect(first.plan.syntheticNames.size).toBeGreaterThan(first.plan.identifierMappings.length);
+  });
+
   it('aliases business-descriptive file paths only in coherent mode and rehydrates them', async () => {
     const source = 'export function chooseWork(request: WorkRequest): boolean { return request.ready; }';
     const originalPath = '/workspace/healthcare/prior-authorization.ts';

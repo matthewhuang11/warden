@@ -334,6 +334,7 @@ export async function transformCoherentCoverStory(
   for (const mapping of commentMappings) reverseComments.set(mapping.synthetic, mapping.original);
   const commentTerms = buildCommentTermMap(domain, candidates);
   const syntheticNames = new Set(identifierMappings.map((mapping) => mapping.synthetic));
+  for (const mapping of stringMappings) syntheticNames.add(mapping.synthetic.slice(1, -1));
   const plan: CoverStoryPlan = {
     generationMode: 'deterministic-template',
     llmRequired: false,
