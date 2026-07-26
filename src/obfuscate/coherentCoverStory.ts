@@ -428,7 +428,8 @@ function collectNameCandidates(root: Parser.SyntaxNode): NameCandidate[] {
       if (name) add(name, 'type');
     } else if (node.type === 'variable_declarator') {
       const name = node.childForFieldName('name');
-      if (name) collectPatternBindings(name, (binding) => add(binding, 'variable'));
+      const role = classifyVariableInitializer(node.childForFieldName('value'));
+      if (name) collectPatternBindings(name, (binding) => add(binding, 'variable', role));
     } else if (node.type === 'property_signature') {
       const name = node.childForFieldName('name');
       if (name?.type === 'property_identifier') add(name, 'property', classifyProperty(node.childForFieldName('type')));
@@ -458,6 +459,17 @@ function collectNameCandidates(root: Parser.SyntaxNode): NameCandidate[] {
     if (pattern) collectPatternBindings(pattern, (binding) => add(binding, 'variable'));
   });
   return [...candidates.values()];
+}
+
+function classifyVariableInitializer(value: Parser.SyntaxNode | null): NameCandidate['role'] | undefined {
+  if (!value) return undefined;
+  if (value.type === 'true' || value.type === 'false' || value.type === 'logical_expression') return 'boolean';
+  if (value.type === 'unary_expression' && value.children[0]?.text === '!') return 'boolean';
+  if (value.type === 'binary_expression') {
+    const operator = value.children.find((child) => !child.isNamed)?.text;
+    if (operator && ['===', '!==', '==', '!=', '>', '>=', '<', '<=', '&&', '||'].includes(operator)) return 'boolean';
+  }
+  return undefined;
 }
 
 function collectPatternBindings(
@@ -507,16 +519,6 @@ function allocateIdentifierMappings(
   const forbidden = new Set(source.match(/[A-Za-z_$][\w$]*/g) ?? []);
   const used = new Set(options.reservedIdentifierNames ?? []);
   for (const value of options.existingIdentifiers?.values() ?? []) used.add(value);
-  const fallbackNames = [
-    ...domain.numberProperties,
-    ...domain.booleanProperties,
-    ...domain.enumProperties,
-    ...domain.variables,
-    ...domain.booleanVariables,
-    ...domain.functionPrefixes,
-    ...domain.typePrefixes,
-    ...domain.classNames,
-  ];
   let functionIndex = 0;
   let typeIndex = 0;
   let classIndex = 0;
@@ -562,7 +564,7 @@ function allocateIdentifierMappings(
                 ? numberIndex++
                 : variableIndex++;
     let synthetic: string | undefined;
-    const namePool = [...new Set([...list, ...fallbackNames])];
+    const namePool = namePoolFor(candidate, list, domain);
     for (let offset = 0; offset < namePool.length; offset++) {
       const candidateName = namePool[(index + offset) % namePool.length];
       if (!used.has(candidateName) && (!forbidden.has(candidateName) || candidateName === candidate.original)) {
@@ -580,6 +582,40 @@ function allocateIdentifierMappings(
     mappings.push({ original: candidate.original, synthetic, kind: 'identifier' });
   }
   return mappings;
+}
+
+function namePoolFor(candidate: NameCandidate, primary: readonly string[], domain: CoverStoryDomain): string[] {
+  const numericFallbacks = domain.vocabulary.flatMap((word) => [
+    `${word}Count`, `${word}Limit`, `${word}Score`, `${word}Delay`,
+  ]);
+  const booleanFallbacks = domain.vocabulary.flatMap((word) => [
+    `is${capitalize(word)}`, `has${capitalize(word)}`, `${word}Ready`,
+  ]);
+  let fallback: readonly string[];
+  if (candidate.category === 'property') {
+    fallback = candidate.role === 'number'
+      ? [...domain.numberProperties, ...domain.variables, ...numericFallbacks]
+      : candidate.role === 'boolean'
+        ? [...domain.booleanProperties, ...domain.booleanVariables, ...booleanFallbacks]
+        : candidate.role === 'enum'
+          ? domain.enumProperties
+          : [...domain.variables, ...domain.numberProperties, ...domain.enumProperties, ...numericFallbacks];
+  } else if (candidate.category === 'variable') {
+    fallback = candidate.role === 'boolean'
+      ? [...domain.booleanVariables, ...domain.booleanProperties, ...booleanFallbacks]
+      : [...domain.variables, ...domain.numberProperties, ...domain.enumProperties, ...numericFallbacks];
+  } else if (candidate.category === 'function') {
+    fallback = domain.functionPrefixes;
+  } else if (candidate.category === 'type') {
+    fallback = domain.typePrefixes;
+  } else {
+    fallback = domain.classNames;
+  }
+  return [...new Set([...primary, ...fallback])];
+}
+
+function capitalize(value: string): string {
+  return value.length === 0 ? value : `${value[0].toUpperCase()}${value.slice(1)}`;
 }
 
 function buildCommentTermMap(domain: CoverStoryDomain, candidates: NameCandidate[]): Map<string, string> {
