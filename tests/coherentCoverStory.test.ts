@@ -103,4 +103,22 @@ describe('coherent cover story mode', () => {
     expect(result.output).toMatch(/\{ [A-Za-z_$][\w$]*: [A-Za-z_$][\w$]*,/);
     expect(rehydrateCoverStoryText(result.output, result.plan)).toBe(source);
   });
+
+  it('keeps module sources intact while consistently remapping repeated literals', async () => {
+    const source = [
+      "import { loadState } from './real-module';",
+      "export function readState(state: 'ready' | 'blocked'): string {",
+      "  if (state === 'ready') return 'ready';",
+      "  return 'blocked';",
+      '}',
+    ].join('\n');
+    const result = await transformCoherentCoverStory(source);
+    const readyMappings = result.plan.stringMappings.filter((mapping) => mapping.original === "'ready'");
+
+    expect(result.validation.valid, result.validation.reason ?? undefined).toBe(true);
+    expect(result.output).toContain("'./real-module'");
+    expect(new Set(readyMappings.map((mapping) => mapping.synthetic))).toHaveLength(1);
+    expect(result.output).not.toContain("'ready'");
+    expect(rehydrateCoverStoryText(result.output, result.plan)).toBe(source);
+  });
 });
