@@ -71,8 +71,11 @@ describe('stealth harness guardrails', () => {
     expect(config.model).toBe('claude-sonnet-4-6');
     expect(config.judgeModel).toBe('claude-sonnet-4-6');
     expect(buildDirectApiMessages(config, 'examples/example.ts', 'const realName = 1;', 1)).toEqual([
-      expect.objectContaining({ role: 'user' }),
-      expect.objectContaining({ role: 'assistant', content: [expect.objectContaining({ type: 'tool_use', name: 'Read' })] }),
+      expect.objectContaining({ role: 'user', content: expect.not.stringContaining('examples/example.ts') }),
+      expect.objectContaining({
+        role: 'assistant',
+        content: [expect.objectContaining({ type: 'tool_use', name: 'Read', input: { file_path: 'source.ts' } })],
+      }),
       expect.objectContaining({
         role: 'user',
         content: expect.arrayContaining([

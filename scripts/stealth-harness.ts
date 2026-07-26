@@ -189,12 +189,16 @@ export function buildClaudeArgs(config: HarnessConfig, fixturePath: string, budg
   ];
 }
 
-export function buildDirectApiMessages(config: HarnessConfig, fixturePath: string, source: string, runNumber: number) {
+export function buildDirectApiMessages(config: HarnessConfig, _fixturePath: string, source: string, runNumber: number) {
   const toolUseId = `read-${runNumber}`;
+  // Keep the evaluation focused on transformed source. The real fixture path
+  // is intentionally omitted here because it can disclose the original
+  // business domain independently of the code transformation.
+  const presentationPath = 'source.ts';
   return [
     {
       role: 'user',
-      content: `Review ${fixturePath} for correctness. The following conversation contains the file returned by the Read tool. ${config.task}`,
+      content: `Review the source file for correctness. The following conversation contains the file returned by the Read tool. ${config.task}`,
     },
     {
       role: 'assistant',
@@ -203,7 +207,7 @@ export function buildDirectApiMessages(config: HarnessConfig, fixturePath: strin
           type: 'tool_use',
           id: toolUseId,
           name: 'Read',
-          input: { file_path: fixturePath },
+          input: { file_path: presentationPath },
         },
       ],
     },
