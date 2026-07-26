@@ -295,7 +295,13 @@ async function runDirectAnthropicReview(config: HarnessConfig, fixturePath: stri
   });
   const raw = await response.text();
   if (!response.ok) throw new Error(`Anthropic API returned ${response.status}: ${raw.slice(-2_000)}`);
-  return extractAnthropicText(raw);
+  let rawModelResponse = raw;
+  try {
+    rawModelResponse = readFileSync(path.join(config.cwd, '.warden', `stealth-harness-${port}-raw.json`), 'utf8');
+  } catch {
+    // Fall back to the proxy response if the opt-in raw capture is unavailable.
+  }
+  return extractAnthropicText(rawModelResponse);
 }
 
 async function runDirectAnthropicJudge(config: HarnessConfig, responseText: string): Promise<JudgeVerdict> {
@@ -360,6 +366,7 @@ export function buildProxyEnv(
   proxyEnv.WARDEN_REDACT_COMMENTS = '1';
   proxyEnv.WARDEN_REDACT_STRINGS = '1';
   proxyEnv.WARDEN_CONNECT_CONFIG = path.join(cwd, '.warden', `stealth-harness-${port}-no-connect.json`);
+  proxyEnv.WARDEN_STEALTH_RAW_RESPONSE_PATH = path.join(cwd, '.warden', `stealth-harness-${port}-raw.json`);
   return proxyEnv;
 }
 

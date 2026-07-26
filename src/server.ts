@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage } from 'node:http';
+import { writeFile } from 'node:fs/promises';
 import { timingSafeEqual } from 'node:crypto';
 import type { Server } from 'node:http';
 import { Readable, Transform } from 'node:stream';
@@ -199,6 +200,16 @@ async function readBufferedResponse(response: Response): Promise<string> {
     reader.releaseLock();
   }
   return Buffer.concat(chunks).toString('utf8');
+}
+
+async function captureStealthRawResponse(rawText: string): Promise<void> {
+  const target = process.env.WARDEN_STEALTH_RAW_RESPONSE_PATH;
+  if (!target) return;
+  try {
+    await writeFile(target, rawText, { mode: 0o600 });
+  } catch (err) {
+    logger.warn('stealth.raw_response_capture_failed', { errorType: errorType(err) });
+  }
 }
 
 interface PreparedBody {
@@ -420,6 +431,7 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
       }
       throw err;
     }
+    await captureStealthRawResponse(rawText);
     let output = rawText;
     try {
       const parsed = JSON.parse(rawText);

@@ -204,6 +204,7 @@ describe('stealth harness guardrails', () => {
     expect(env.WARDEN_REDACT_STRINGS).toBe('1');
     expect(env.WARDEN_UPSTREAM_BASE_URL).toBe('https://api.anthropic.com');
     expect(env.WARDEN_CONNECT_CONFIG).toBe('/test/workspace/.warden/stealth-harness-43123-no-connect.json');
+    expect(env.WARDEN_STEALTH_RAW_RESPONSE_PATH).toBe('/test/workspace/.warden/stealth-harness-43123-raw.json');
   });
 
   it('records a Claude failure, continues the pass, and stops the fresh proxy', async () => {
