@@ -199,8 +199,13 @@ export class CoherentCoverStorySession {
   async rehydrateTextWithCommentAdapter(text: string, adapter: CoverStoryCommentAdapter): Promise<string> {
     this.purgeExpired();
     const deterministic = this.rehydrateText(text);
+    return this.rehydrateUnresolvedCommentsWithAdapter(deterministic, adapter);
+  }
+
+  async rehydrateUnresolvedCommentsWithAdapter(text: string, adapter: CoverStoryCommentAdapter): Promise<string> {
+    this.purgeExpired();
     const output = await rehydrateUnresolvedCoverStoryComments(
-      deterministic,
+      text,
       this.plans.map((stored) => stored.plan),
       adapter,
     );

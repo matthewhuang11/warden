@@ -37,7 +37,8 @@ export async function rehydrateJsonValueWithCommentAdapter(
   adapter: CoverStoryCommentAdapter,
 ): Promise<unknown> {
   if (typeof value === 'string') {
-    return coherentSession.rehydrateTextWithCommentAdapter(value, adapter);
+    const deterministic = rehydrateText(value, renameMap, coherentSession);
+    return coherentSession.rehydrateUnresolvedCommentsWithAdapter(deterministic, adapter);
   }
   if (Array.isArray(value)) {
     return Promise.all(value.map((item) => rehydrateJsonValueWithCommentAdapter(item, renameMap, coherentSession, adapter)));

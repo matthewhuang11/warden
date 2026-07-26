@@ -2,9 +2,10 @@ import { readFile } from 'node:fs/promises';
 import { describe, expect, it, vi } from 'vitest';
 import { readConfig } from '../src/config.js';
 import { transformRequestBody } from '../src/obfuscate/transformRequestBody.js';
+import { obfuscateCode } from '../src/obfuscate/obfuscateCode.js';
 import { RenameMap } from '../src/obfuscate/renameMap.js';
 import { CoherentCoverStorySession } from '../src/session.js';
-import { rehydrateJsonValue } from '../src/rehydrate/rehydrateJson.js';
+import { rehydrateJsonValue, rehydrateJsonValueWithCommentAdapter } from '../src/rehydrate/rehydrateJson.js';
 import { rehydrateSseStream } from '../src/rehydrate/sseRehydrate.js';
 
 function toolResultRequest(filePath: string, toolUseId: string, source: string) {
@@ -267,6 +268,30 @@ describe('coherent mode integration', () => {
       }) + sseEvent('content_block_stop', { type: 'content_block_stop', index: 0 });
     const output = await collect(rehydrateSseStream(oneChunk(raw), new RenameMap(), session));
     expect(output).toContain('Call computeTotal');
+  });
+
+  it('preserves pool mappings when buffered JSON also uses a comment adapter', async () => {
+    const renameMap = new RenameMap();
+    const poolSource = 'const privateToken = 1;';
+    const pool = await obfuscateCode(poolSource, renameMap);
+    const poolOutput = pool.output;
+    const poolSynthetic = renameMap.get('privateToken');
+    expect(poolSynthetic).toBeDefined();
+
+    const session = new CoherentCoverStorySession();
+    const coherent = await session.transform('src/decision.ts', 'export function decide(value: number): number { return value; }');
+    const unresolvedTerm = coherent.plan.domain.vocabulary.find((term) => !coherent.plan.commentTerms.has(term));
+    expect(unresolvedTerm).toBeDefined();
+
+    const rehydrated = await rehydrateJsonValueWithCommentAdapter(
+      { text: `${poolOutput}\n// Check the ${unresolvedTerm}.` },
+      renameMap,
+      session,
+      { async rewriteComment() { return '// Check the original decision.'; } },
+    );
+
+    expect(rehydrated).toEqual({ text: 'const privateToken = 1;\n// Check the original decision.' });
+    expect(poolSynthetic).not.toBe('privateToken');
   });
 
   it('buffers SSE text blocks when a semantic comment adapter is enabled', async () => {
