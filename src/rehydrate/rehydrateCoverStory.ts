@@ -36,6 +36,12 @@ function replaceQuotedStrings(text: string, replacements: Map<string, string>): 
   for (const [syntheticToken, originalToken] of [...replacements.entries()].sort(byKeyLength)) {
     const synthetic = syntheticToken.slice(1, -1);
     const original = originalToken.slice(1, -1);
+    if (syntheticToken.startsWith('`')) {
+      const staticParts = synthetic.split(/\$\{[^}]*\}/g).map(escapeRegExp);
+      const templatePattern = `\`${staticParts.join('\\$\\{[^}]*\\}')}\``;
+      output = output.replace(new RegExp(templatePattern, 'g'), () => originalToken);
+      continue;
+    }
     const escaped = escapeRegExp(synthetic);
     output = output.replace(new RegExp(`(['"\`])${escaped}\\1`, 'g'), (_match, quote: string) => `${quote}${original}${quote}`);
   }

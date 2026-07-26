@@ -173,4 +173,14 @@ describe('coherent cover story mode', () => {
     expect(result.output).not.toContain('#currentValue');
     expect(rehydrateCoverStoryText(result.output, result.plan)).toBe(source);
   });
+
+  it('rewrites static template fragments while preserving substitutions', async () => {
+    const source = "export function buildLabel(name: string, count: number) { return `Confidential workflow for ${name}: ${count} items`; }";
+    const result = await transformCoherentCoverStory(source);
+
+    expect(result.validation.valid, result.validation.reason ?? undefined).toBe(true);
+    expect(result.output).not.toContain('Confidential workflow');
+    expect(result.output).toContain('${');
+    expect(rehydrateCoverStoryText(result.output, result.plan)).toBe(source);
+  });
 });

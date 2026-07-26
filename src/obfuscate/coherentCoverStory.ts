@@ -269,6 +269,7 @@ export async function transformCoherentCoverStory(
   let commentIndex = 0;
   let stringIndex = 0;
   const fakeStringByOriginal = new Map<string, string>();
+  const fakeTemplateByOriginal = new Map<string, string>();
   const usedFakeStrings = new Set(options.reservedStringValues ?? []);
   for (const value of options.existingStrings?.values() ?? []) usedFakeStrings.add(value);
   walk(originalTree.rootNode, (node) => {
@@ -276,6 +277,18 @@ export async function transformCoherentCoverStory(
       const fake = renderComment(domain, shape, commentIndex++);
       commentEdits.push({ startIndex: node.startIndex, endIndex: node.endIndex, replacement: fake });
       commentMappings.push({ original: node.text, synthetic: fake, kind: 'comment' });
+      return;
+    }
+    if (node.type === 'template_string') {
+      const originalTemplate = node.text;
+      const existingTemplate = fakeTemplateByOriginal.get(originalTemplate.slice(1, -1))
+        ?? options.existingStrings?.get(originalTemplate.slice(1, -1));
+      const fakeTemplate = existingTemplate
+        ? `\`${existingTemplate}\``
+        : renderTemplate(domain, node, stringIndex++, usedFakeStrings);
+      fakeTemplateByOriginal.set(originalTemplate.slice(1, -1), fakeTemplate.slice(1, -1));
+      stringEdits.push({ startIndex: node.startIndex, endIndex: node.endIndex, replacement: fakeTemplate });
+      stringMappings.push({ original: originalTemplate, synthetic: fakeTemplate, kind: 'string' });
       return;
     }
     if (node.type === 'string' && !isModuleSource(node) && isLookupPropertyString(node)) {
@@ -374,6 +387,7 @@ export function inferStructuralShape(root: Parser.SyntaxNode): StructuralShape {
     if (node.type === 'if_statement' || node.type === 'switch_case' || node.type === 'ternary_expression' || node.type === 'conditional_expression') shape.branches++;
     if (node.type === 'number') shape.numericLiterals++;
     if (node.type === 'true' || node.type === 'false') shape.booleanLiterals++;
+    if (node.type === 'template_string') shape.stringLiterals++;
     if (node.type === 'string' && !isModuleSource(node)) {
       shape.stringLiterals++;
       if (node.parent?.type === 'literal_type' && node.parent.parent?.type === 'union_type') enumValues.add(node.text);
@@ -690,6 +704,21 @@ function allocateFakeString(domain: CoverStoryDomain, index: number, used: Set<s
   let suffix = 2;
   while (used.has(candidate)) candidate = `${base}_${suffix++}`;
   return candidate;
+}
+
+function renderTemplate(
+  domain: CoverStoryDomain,
+  node: Parser.SyntaxNode,
+  index: number,
+  used: Set<string>,
+): string {
+  const fragments = node.namedChildren.map((child) => {
+    if (child.type !== 'string_fragment') return child.text;
+    const fake = allocateFakeString(domain, index++, used);
+    used.add(fake);
+    return fake;
+  });
+  return `\`${fragments.join('')}\``;
 }
 
 function renderComment(domain: CoverStoryDomain, shape: StructuralShape, index: number): string {
