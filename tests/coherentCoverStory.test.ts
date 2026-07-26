@@ -1,7 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { transformCoherentCoverStory, validateCoherentCoverStoryOutput } from '../src/obfuscate/coherentCoverStory.js';
-import { findUnrehydratedCoverStoryTerms, rehydrateCoverStoryText } from '../src/rehydrate/rehydrateCoverStory.js';
+import {
+  findUnrehydratedCoverStoryTerms,
+  rehydrateCoverStoryText,
+  rehydrateUnresolvedCoverStoryComments,
+} from '../src/rehydrate/rehydrateCoverStory.js';
 
 const fixturePaths = [
   'examples/fixtures/tuning/fintech/settlement-reserve.ts',
@@ -116,6 +120,31 @@ describe('coherent cover story mode', () => {
     const diagnostics = findUnrehydratedCoverStoryTerms(response, [result.plan]);
 
     expect(diagnostics).toEqual([{ term: unresolvedTerm, comment: addedComment }]);
+  });
+
+  it('uses an approved comment adapter only for unresolved fake-domain terms', async () => {
+    const source = 'export function chooseWork(value: number): number { return value + 1; }';
+    const result = await transformCoherentCoverStory(source);
+    const unresolvedTerm = result.plan.domain.vocabulary.find((term) => !result.plan.commentTerms.has(term));
+    expect(unresolvedTerm).toBeDefined();
+    const addedComment = `// Check the ${unresolvedTerm} before the next ${result.plan.domain.action}ing step.`;
+    const calls: string[] = [];
+
+    const output = await rehydrateUnresolvedCoverStoryComments(
+      `${result.output}\n${addedComment}`,
+      [result.plan],
+      {
+        async rewriteComment(comment, context) {
+          calls.push(comment);
+          expect(context.unresolvedTerms).toContain(unresolvedTerm);
+          return '// Check the work item before the next decision step.';
+        },
+      },
+    );
+
+    expect(calls).toEqual([addedComment]);
+    expect(output).toContain('// Check the work item before the next decision step.');
+    expect(output).not.toContain(unresolvedTerm);
   });
 
   it('flags a second catalog vocabulary before the output can be sent upstream', async () => {

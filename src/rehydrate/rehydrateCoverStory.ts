@@ -9,6 +9,15 @@ export interface UnrehydratedCoverStoryTerm {
   comment: string;
 }
 
+export interface CoverStoryCommentAdapterContext {
+  plan: CoverStoryPlan;
+  unresolvedTerms: readonly string[];
+}
+
+export interface CoverStoryCommentAdapter {
+  rewriteComment(comment: string, context: CoverStoryCommentAdapterContext): Promise<string | null>;
+}
+
 /**
  * Rehydrates a coherent-cover-story response without changing the existing
  * RenameMap path. Known generated comments are restored exactly. Comments
@@ -63,6 +72,29 @@ export function findUnrehydratedCoverStoryTerms(
     return comment;
   });
   return results;
+}
+
+/**
+ * Applies an explicitly configured semantic adapter only to comments that
+ * still contain known fake-domain vocabulary after deterministic rehydration.
+ * Invalid or still-synthetic adapter output is discarded unchanged.
+ */
+export async function rehydrateUnresolvedCoverStoryComments(
+  text: string,
+  plans: readonly CoverStoryPlan[],
+  adapter: CoverStoryCommentAdapter,
+): Promise<string> {
+  const knownOriginalComments = new Set(plans.flatMap((plan) => [...plan.reverseComments.values()]));
+  return replaceCommentsAsync(text, async (comment) => {
+    if (knownOriginalComments.has(comment)) return comment;
+    const plan = selectCommentPlan(comment, plans);
+    if (!plan) return comment;
+    const unresolvedTerms = plan.domain.vocabulary.filter((term) => hasWord(comment, term) && !plan.commentTerms.has(term));
+    if (unresolvedTerms.length === 0) return comment;
+    const rewritten = await adapter.rewriteComment(comment, { plan, unresolvedTerms });
+    if (!isCommentText(rewritten) || plan.domain.vocabulary.some((term) => hasWord(rewritten, term))) return comment;
+    return rewritten;
+  });
 }
 
 function outputComments(text: string, plan: CoverStoryPlan): string {
@@ -144,6 +176,30 @@ function selectCommentPlan(comment: string, plans: readonly CoverStoryPlan[]): C
 
 function hasWord(text: string, value: string): boolean {
   return new RegExp(`\\b${escapeRegExp(value)}\\b`).test(text);
+}
+
+async function replaceCommentsAsync(
+  text: string,
+  rewrite: (comment: string) => Promise<string>,
+): Promise<string> {
+  const matches = [...text.matchAll(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g)];
+  if (matches.length === 0) return text;
+  const replacements = await Promise.all(matches.map((match) => rewrite(match[0])));
+  let output = '';
+  let cursor = 0;
+  for (let index = 0; index < matches.length; index++) {
+    const match = matches[index];
+    output += text.slice(cursor, match.index) + replacements[index];
+    cursor = (match.index ?? 0) + match[0].length;
+  }
+  return output + text.slice(cursor);
+}
+
+function isCommentText(value: string | null): value is string {
+  if (!value) return false;
+  const trimmed = value.trim();
+  if (trimmed.startsWith('//')) return !trimmed.includes('\n');
+  return trimmed.startsWith('/*') && trimmed.endsWith('*/');
 }
 
 function collapseExpandedShorthand(text: string, replacements: Map<string, string>): string {

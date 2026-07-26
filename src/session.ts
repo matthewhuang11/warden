@@ -5,7 +5,12 @@ import {
   type CoverStoryPlan,
   type CoherentCoverStoryResult,
 } from './obfuscate/coherentCoverStory.js';
-import { rehydrateAddedCommentTermsForPlans, rehydrateCoverStoryText } from './rehydrate/rehydrateCoverStory.js';
+import {
+  rehydrateAddedCommentTermsForPlans,
+  rehydrateCoverStoryText,
+  rehydrateUnresolvedCoverStoryComments,
+  type CoverStoryCommentAdapter,
+} from './rehydrate/rehydrateCoverStory.js';
 import { config } from './config.js';
 
 // Real names never leave the machine; synthetic names never touch disk.
@@ -188,6 +193,17 @@ export class CoherentCoverStorySession {
       output = rehydrateCoverStoryText(output, stored.plan, { includeAddedCommentTerms: false });
     }
     output = rehydrateAddedCommentTermsForPlans(output, this.plans.map((stored) => stored.plan));
+    return this.rehydratePathsInText(output);
+  }
+
+  async rehydrateTextWithCommentAdapter(text: string, adapter: CoverStoryCommentAdapter): Promise<string> {
+    this.purgeExpired();
+    const deterministic = this.rehydrateText(text);
+    const output = await rehydrateUnresolvedCoverStoryComments(
+      deterministic,
+      this.plans.map((stored) => stored.plan),
+      adapter,
+    );
     return this.rehydratePathsInText(output);
   }
 
