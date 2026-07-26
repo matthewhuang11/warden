@@ -680,6 +680,9 @@ function collectChild(child: ChildProcessWithoutNullStreams, timeoutMs: number):
   return new Promise((resolve, reject) => {
     let stdout = '';
     let stderr = '';
+    // These invocations receive their prompt as CLI arguments. Closing stdin
+    // prevents Claude CLI from waiting for interactive input before starting.
+    child.stdin.end();
     const timer = setTimeout(() => {
       child.kill('SIGTERM');
       reject(new Error(`Claude CLI exceeded ${timeoutMs}ms timeout`));
