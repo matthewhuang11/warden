@@ -5,7 +5,7 @@ import {
   type CoverStoryPlan,
   type CoherentCoverStoryResult,
 } from './obfuscate/coherentCoverStory.js';
-import { rehydrateCoverStoryText } from './rehydrate/rehydrateCoverStory.js';
+import { rehydrateAddedCommentTerms, rehydrateCoverStoryText } from './rehydrate/rehydrateCoverStory.js';
 import { config } from './config.js';
 
 // Real names never leave the machine; synthetic names never touch disk.
@@ -39,6 +39,7 @@ export class CoherentCoverStorySession {
   private readonly plans: StoredCoverStoryPlan[] = [];
   private readonly identifiers = new Map<string, string>();
   private readonly strings = new Map<string, string>();
+  private readonly comments = new Map<string, string>();
   private readonly pathAliases: StoredPathAlias[] = [];
 
   constructor(
@@ -55,8 +56,10 @@ export class CoherentCoverStorySession {
     const result = await transformCoherentCoverStory(source, {
       reservedIdentifierNames: this.identifiers.values(),
       reservedStringValues: this.strings.values(),
+      reservedCommentTexts: this.comments.values(),
       existingIdentifiers: this.identifiers,
       existingStrings: this.strings,
+      existingComments: this.comments,
     });
     if (!result.validation.valid) {
       throw new Error(`Cover story validation failed for ${label}: ${result.validation.reason ?? 'unknown reason'}`);
@@ -181,7 +184,10 @@ export class CoherentCoverStorySession {
     let output = text;
     for (const stored of this.plans) {
       stored.lastUsedAt = now;
-      output = rehydrateCoverStoryText(output, stored.plan);
+      output = rehydrateCoverStoryText(output, stored.plan, { includeAddedCommentTerms: false });
+    }
+    for (const stored of this.plans) {
+      output = rehydrateAddedCommentTerms(output, stored.plan);
     }
     return this.rehydratePathsInText(output);
   }
@@ -230,6 +236,7 @@ export class CoherentCoverStorySession {
       for (const mapping of plan.stringMappings) {
         this.strings.set(mapping.original.slice(1, -1), mapping.synthetic.slice(1, -1));
       }
+      for (const mapping of plan.commentMappings) this.comments.set(mapping.original, mapping.synthetic);
     }
   }
 }

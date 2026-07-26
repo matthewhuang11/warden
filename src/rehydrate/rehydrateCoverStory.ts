@@ -1,5 +1,9 @@
 import type { CoverStoryPlan } from '../obfuscate/coherentCoverStory.js';
 
+export interface RehydrateCoverStoryOptions {
+  includeAddedCommentTerms?: boolean;
+}
+
 /**
  * Rehydrates a coherent-cover-story response without changing the existing
  * RenameMap path. Known generated comments are restored exactly. Comments
@@ -7,12 +11,20 @@ import type { CoverStoryPlan } from '../obfuscate/coherentCoverStory.js';
  * tied to a source identifier are replaced locally, while genuinely new
  * prose cannot be semantically inverted without an LLM.
  */
-export function rehydrateCoverStoryText(text: string, plan: CoverStoryPlan): string {
+export function rehydrateCoverStoryText(
+  text: string,
+  plan: CoverStoryPlan,
+  options: RehydrateCoverStoryOptions = {},
+): string {
   let output = replaceExact(outputComments(text, plan), plan.reverseComments);
   output = replaceQuotedStrings(output, plan.reverseStrings);
   output = replaceIdentifiers(output, plan.reverseIdentifiers);
   output = collapseExpandedShorthand(output, plan.reverseIdentifiers);
-  return replaceAddedCommentTerms(output, plan.commentTerms);
+  return options.includeAddedCommentTerms === false ? output : replaceAddedCommentTerms(output, plan.commentTerms);
+}
+
+export function rehydrateAddedCommentTerms(text: string, plan: CoverStoryPlan): string {
+  return replaceAddedCommentTerms(text, plan.commentTerms);
 }
 
 function outputComments(text: string, plan: CoverStoryPlan): string {

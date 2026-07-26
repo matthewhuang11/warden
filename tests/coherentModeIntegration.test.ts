@@ -192,6 +192,26 @@ describe('coherent mode integration', () => {
     expect(session.rehydrateText(second.output)).toContain('second(value: number)');
   });
 
+  it('keeps comment mappings distinct and rehydratable across files in one session', async () => {
+    const session = new CoherentCoverStorySession();
+    const firstSource = [
+      '// First private note.',
+      'export function first(value: number): number { return value + 1; }',
+    ].join('\n');
+    const secondSource = [
+      '// Second private note.',
+      'export function second(value: number): number { return value + 2; }',
+    ].join('\n');
+    const first = await session.transform('src/first.ts', firstSource);
+    const second = await session.transform('src/second.ts', secondSource);
+
+    expect(first.plan.commentMappings[0]?.synthetic).toBeDefined();
+    expect(second.plan.commentMappings[0]?.synthetic).toBeDefined();
+    expect(second.plan.commentMappings[0]?.synthetic).not.toBe(first.plan.commentMappings[0]?.synthetic);
+    expect(session.rehydrateText(first.output)).toBe(firstSource);
+    expect(session.rehydrateText(second.output)).toBe(secondSource);
+  });
+
   it('uses fresh cover vocabulary instead of numeric suffixes across held-out domains', async () => {
     const session = new CoherentCoverStorySession();
     const firstSource = await readFile('examples/fixtures/held-out/fintech/merchant-payout-schedule.ts', 'utf8');

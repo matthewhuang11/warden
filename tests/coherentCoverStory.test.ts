@@ -40,6 +40,36 @@ describe('coherent cover story mode', () => {
     expect(rehydrateCoverStoryText(result.output, result.plan)).toBe(source);
   });
 
+  it('allocates unique synthetic comments when a file has more templates than comment slots', async () => {
+    const source = [
+      '// First private note.',
+      '// Second private note.',
+      '// Third private note.',
+      '// Fourth private note.',
+      'export function chooseWork(value: number): number { return value + 1; }',
+    ].join('\n');
+    const result = await transformCoherentCoverStory(source);
+    const syntheticComments = result.plan.commentMappings.map((mapping) => mapping.synthetic);
+
+    expect(new Set(syntheticComments).size).toBe(syntheticComments.length);
+    expect(rehydrateCoverStoryText(result.output, result.plan)).toBe(source);
+  });
+
+  it('reuses one synthetic comment for repeated copies of the same original comment', async () => {
+    const source = [
+      '// Repeat this private note.',
+      'export function chooseWork(value: number): number {',
+      '  // Repeat this private note.',
+      '  return value + 1;',
+      '}',
+    ].join('\n');
+    const result = await transformCoherentCoverStory(source);
+    const syntheticComments = result.plan.commentMappings.map((mapping) => mapping.synthetic);
+
+    expect(new Set(syntheticComments)).toHaveLength(1);
+    expect(rehydrateCoverStoryText(result.output, result.plan)).toBe(source);
+  });
+
   it('rehydrates fake-domain references in a comment added by the model', async () => {
     const source = [
       'interface WorkRequest { ready: boolean; }',

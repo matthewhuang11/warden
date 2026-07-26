@@ -84,8 +84,10 @@ export interface CoherentCoverStoryResult {
 export interface CoherentCoverStoryOptions {
   reservedIdentifierNames?: Iterable<string>;
   reservedStringValues?: Iterable<string>;
+  reservedCommentTexts?: Iterable<string>;
   existingIdentifiers?: ReadonlyMap<string, string>;
   existingStrings?: ReadonlyMap<string, string>;
+  existingComments?: ReadonlyMap<string, string>;
 }
 
 export async function validateCoherentCoverStoryOutput(output: string, plan: CoverStoryPlan): Promise<CoverStoryValidation> {
@@ -271,10 +273,17 @@ export async function transformCoherentCoverStory(
   const fakeStringByOriginal = new Map<string, string>();
   const fakeTemplateByOriginal = new Map<string, string>();
   const usedFakeStrings = new Set(options.reservedStringValues ?? []);
+  const fakeCommentByOriginal = new Map<string, string>();
+  const usedFakeComments = new Set(options.reservedCommentTexts ?? []);
   for (const value of options.existingStrings?.values() ?? []) usedFakeStrings.add(value);
+  for (const value of options.existingComments?.values() ?? []) usedFakeComments.add(value);
   walk(originalTree.rootNode, (node) => {
     if (node.type === 'comment') {
-      const fake = renderComment(domain, shape, commentIndex++);
+      const fake = fakeCommentByOriginal.get(node.text)
+        ?? options.existingComments?.get(node.text)
+        ?? allocateFakeComment(domain, shape, commentIndex++, usedFakeComments);
+      fakeCommentByOriginal.set(node.text, fake);
+      usedFakeComments.add(fake);
       commentEdits.push({ startIndex: node.startIndex, endIndex: node.endIndex, replacement: fake });
       commentMappings.push({ original: node.text, synthetic: fake, kind: 'comment' });
       return;
@@ -335,6 +344,7 @@ export async function transformCoherentCoverStory(
   const commentTerms = buildCommentTermMap(domain, candidates);
   const syntheticNames = new Set(identifierMappings.map((mapping) => mapping.synthetic));
   for (const mapping of stringMappings) syntheticNames.add(mapping.synthetic.slice(1, -1));
+  for (const mapping of commentMappings) syntheticNames.add(mapping.synthetic);
   const plan: CoverStoryPlan = {
     generationMode: 'deterministic-template',
     llmRequired: false,
@@ -727,6 +737,29 @@ function renderComment(domain: CoverStoryDomain, shape: StructuralShape, index: 
   if (shape.branches === 0 && index === 0) return `// Maintain the ${domain.container} state while ${domain.action}ing ${domain.plural}.`;
   if (template.startsWith('//')) return template;
   return `// ${template}`;
+}
+
+function allocateFakeComment(
+  domain: CoverStoryDomain,
+  shape: StructuralShape,
+  index: number,
+  used: Set<string>,
+): string {
+  const candidates = [
+    renderComment(domain, shape, index),
+    `// Keep the ${domain.container} ${domain.statusNoun} stable before the next ${domain.action} step.`,
+    `// Recheck each ${domain.noun} before ${domain.action}ing the next ${domain.plural}.`,
+    `// Preserve ${domain.container} capacity while ${domain.action}ing ${domain.plural}.`,
+    `// Record the ${domain.statusNoun} before the next ${domain.action} decision.`,
+  ];
+  const available = candidates.find((candidate) => !used.has(candidate));
+  if (available) return available;
+
+  const base = `// Keep the ${domain.container} ${domain.statusNoun} stable before the next ${domain.action} step`;
+  let suffix = 2;
+  let candidate = `${base} (${domain.noun} note ${suffix}).`;
+  while (used.has(candidate)) candidate = `${base} (${domain.noun} note ${suffix++}).`;
+  return candidate;
 }
 
 function isModuleSource(node: Parser.SyntaxNode): boolean {
