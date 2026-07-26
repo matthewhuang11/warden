@@ -147,7 +147,7 @@ export function readHarnessConfig(
   const clientMode = options.directApi ? 'anthropic-api' : 'claude-cli';
   if (options.directApi && options.useCliAuth) throw new Error('--direct-api requires a dedicated API key, not --use-cli-auth');
   if (!options.dryRun && authMode === 'dedicated-key') validateDedicatedKey(testApiKey, env.ANTHROPIC_API_KEY);
-  const model = env.WARDEN_STEALTH_MODEL ?? (clientMode === 'anthropic-api' ? 'claude-sonnet-4-20250514' : 'sonnet');
+  const model = env.WARDEN_STEALTH_MODEL ?? (clientMode === 'anthropic-api' ? 'claude-sonnet-4-6' : 'sonnet');
   const judgeModel = env.WARDEN_STEALTH_JUDGE_MODEL ?? (clientMode === 'anthropic-api' ? model : env.WARDEN_STEALTH_MODEL ?? 'sonnet');
 
   return {
