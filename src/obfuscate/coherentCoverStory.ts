@@ -112,7 +112,7 @@ const DOMAINS: readonly CoverStoryDomain[] = [
     enumProperties: ['lane', 'routeState', 'handlingMode', 'dispatchState', 'handoffType'],
     variables: ['parcelWeight', 'routeCapacity', 'depotBuffer', 'candidateRoute', 'selectedLane', 'resultScore', 'availableUnits', 'reservedUnits', 'handoffDelay', 'capacityLimit'],
     booleanVariables: ['isEligible', 'hasRouteCapacity', 'requiresDispatchReview', 'isWithinLimit', 'shouldHandoff'],
-    enumValues: ['standard_lane', 'priority_lane', 'manual_lane', 'hold_lane', 'overflow_lane', 'direct_lane'],
+    enumValues: ['standard_lane', 'priority_lane', 'manual_lane', 'hold_lane', 'overflow_lane', 'direct_lane', 'seasonal_lane', 'regional_lane', 'backup_lane', 'express_lane'],
     commentTemplates: [
       'Classify each parcel against the route constraints before selecting a dispatch lane.',
       'Keep the depot buffer intact before releasing the next handoff.',
@@ -136,7 +136,7 @@ const DOMAINS: readonly CoverStoryDomain[] = [
     enumProperties: ['recommendation', 'menuState', 'dietMode', 'selectionState', 'servingType'],
     variables: ['ingredientScore', 'recipeScore', 'kitchenCapacity', 'preferenceWeight', 'candidateRecipe', 'selectedMenu', 'availableServings', 'servingLimit', 'prepDelay', 'matchScore'],
     booleanVariables: ['isEligible', 'hasRequiredIngredient', 'requiresMenuReview', 'isWithinTarget', 'shouldRecommend'],
-    enumValues: ['classic_menu', 'preferred_menu', 'manual_menu', 'hold_menu', 'seasonal_menu', 'direct_menu'],
+    enumValues: ['classic_menu', 'preferred_menu', 'manual_menu', 'hold_menu', 'seasonal_menu', 'direct_menu', 'regional_menu', 'backup_menu', 'express_menu', 'limited_menu'],
     commentTemplates: [
       'Score each recipe against the menu constraints before selecting a recommendation.',
       'Keep the kitchen capacity available before adding the next serving.',
@@ -160,7 +160,7 @@ const DOMAINS: readonly CoverStoryDomain[] = [
     enumProperties: ['shelf', 'loanState', 'readerMode', 'circulationState', 'returnType'],
     variables: ['titleScore', 'shelfCapacity', 'libraryBuffer', 'candidateTitle', 'selectedShelf', 'resultScore', 'availableCopies', 'reservedCopies', 'returnDelay', 'copyLimit'],
     booleanVariables: ['isEligible', 'hasCopies', 'requiresCirculationReview', 'isWithinLimit', 'shouldHold'],
-    enumValues: ['general_shelf', 'priority_shelf', 'manual_shelf', 'hold_shelf', 'overflow_shelf', 'direct_shelf'],
+    enumValues: ['general_shelf', 'priority_shelf', 'manual_shelf', 'hold_shelf', 'overflow_shelf', 'direct_shelf', 'seasonal_shelf', 'regional_shelf', 'backup_shelf', 'express_shelf'],
     commentTemplates: [
       'Score each title against the shelf constraints before selecting a circulation lane.',
       'Keep the library buffer intact before releasing the next loan.',
@@ -184,7 +184,7 @@ const DOMAINS: readonly CoverStoryDomain[] = [
     enumProperties: ['bed', 'seasonState', 'growthMode', 'scheduleState', 'harvestType'],
     variables: ['growthScore', 'gardenCapacity', 'seasonBuffer', 'candidatePlot', 'selectedBed', 'resultScore', 'availableBeds', 'reservedBeds', 'harvestDelay', 'bedLimit'],
     booleanVariables: ['isEligible', 'hasWater', 'requiresGardenReview', 'isWithinLimit', 'shouldSchedule'],
-    enumValues: ['open_bed', 'priority_bed', 'manual_bed', 'hold_bed', 'seasonal_bed', 'direct_bed'],
+    enumValues: ['open_bed', 'priority_bed', 'manual_bed', 'hold_bed', 'seasonal_bed', 'direct_bed', 'regional_bed', 'backup_bed', 'express_bed', 'limited_bed'],
     commentTemplates: [
       'Score each plot against the season constraints before selecting a garden bed.',
       'Keep the garden buffer intact before assigning the next planting window.',
@@ -208,7 +208,7 @@ const DOMAINS: readonly CoverStoryDomain[] = [
     enumProperties: ['channel', 'alertState', 'forecastMode', 'routingState', 'noticeType'],
     variables: ['signalScore', 'stationCapacity', 'forecastBuffer', 'candidateAlert', 'selectedChannel', 'resultScore', 'availableChannels', 'reservedChannels', 'noticeDelay', 'channelLimit'],
     booleanVariables: ['isEligible', 'hasSignal', 'requiresAlertReview', 'isWithinLimit', 'shouldNotify'],
-    enumValues: ['general_channel', 'priority_channel', 'manual_channel', 'hold_channel', 'regional_channel', 'direct_channel'],
+    enumValues: ['general_channel', 'priority_channel', 'manual_channel', 'hold_channel', 'regional_channel', 'direct_channel', 'seasonal_channel', 'backup_channel', 'express_channel', 'limited_channel'],
     commentTemplates: [
       'Score each alert against the forecast constraints before selecting a notification channel.',
       'Keep the station capacity available before sending the next notice.',
@@ -367,6 +367,19 @@ function chooseDomain(shape: StructuralShape): CoverStoryDomain {
 
 function collectNameCandidates(root: Parser.SyntaxNode): NameCandidate[] {
   const candidates = new Map<string, NameCandidate>();
+  const declaredMemberNames = new Set<string>();
+  walk(root, (node) => {
+    if (node.type === 'property_signature') {
+      const name = node.childForFieldName('name');
+      if (name) declaredMemberNames.add(name.text);
+    } else if (node.type === 'pair') {
+      const key = node.childForFieldName('key');
+      if (key) declaredMemberNames.add(key.text);
+    } else if (node.type === 'method_definition' || node.type === 'public_field_definition') {
+      const name = node.childForFieldName('name');
+      if (name) declaredMemberNames.add(name.text);
+    }
+  });
   const add = (node: Parser.SyntaxNode, category: NameCandidate['category'], role?: string) => {
     const name = node.text;
     if (!name || RESERVED_GLOBALS.has(name) || !/^[A-Za-z_$][\w$]*$/.test(name)) return;
@@ -398,7 +411,11 @@ function collectNameCandidates(root: Parser.SyntaxNode): NameCandidate[] {
     } else if (node.type === 'member_expression') {
       const property = node.childForFieldName('property');
       const object = node.childForFieldName('object');
-      if (property?.type === 'property_identifier' && !(object?.type === 'identifier' && RESERVED_GLOBALS.has(object.text))) add(property, 'property');
+      if (
+        property?.type === 'property_identifier' &&
+        declaredMemberNames.has(property.text) &&
+        !(object?.type === 'identifier' && RESERVED_GLOBALS.has(object.text))
+      ) add(property, 'property');
     }
   });
 
@@ -439,7 +456,7 @@ function allocateIdentifierMappings(candidates: NameCandidate[], domain: CoverSt
                   : candidate.category === 'property' && candidate.role === 'enum'
                     ? domain.enumProperties
                     : domain.variables;
-    let index = candidate.category === 'function'
+    const index = candidate.category === 'function'
       ? functionIndex++
       : candidate.category === 'type'
         ? typeIndex++
@@ -452,10 +469,19 @@ function allocateIdentifierMappings(candidates: NameCandidate[], domain: CoverSt
               : candidate.category === 'property' && candidate.role === 'number'
                 ? numberIndex++
                 : variableIndex++;
-    let synthetic = list[index % list.length];
-    while (used.has(synthetic) || (forbidden.has(synthetic) && synthetic !== candidate.original)) {
-      synthetic = `${synthetic}${index + 2}`;
-      index++;
+    let synthetic: string | undefined;
+    for (let offset = 0; offset < list.length; offset++) {
+      const candidateName = list[(index + offset) % list.length];
+      if (!used.has(candidateName) && (!forbidden.has(candidateName) || candidateName === candidate.original)) {
+        synthetic = candidateName;
+        break;
+      }
+    }
+    if (!synthetic) {
+      const base = list[index % list.length];
+      let suffix = 2;
+      synthetic = `${base}${suffix}`;
+      while (used.has(synthetic) || forbidden.has(synthetic)) synthetic = `${base}${++suffix}`;
     }
     used.add(synthetic);
     mappings.push({ original: candidate.original, synthetic, kind: 'identifier' });
