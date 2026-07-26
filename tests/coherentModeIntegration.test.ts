@@ -71,6 +71,41 @@ describe('coherent mode integration', () => {
     expect(session.size).toBe(2);
   });
 
+  it('aliases business-descriptive file paths only in coherent mode and rehydrates them', async () => {
+    const source = 'export function chooseWork(request: WorkRequest): boolean { return request.ready; }';
+    const originalPath = '/workspace/healthcare/prior-authorization.ts';
+    const session = new CoherentCoverStorySession();
+    const coherent = await transformRequestBody(toolResultRequest(originalPath, 'coherent', source), new RenameMap(), {
+      mode: 'coherent',
+      coherentSession: session,
+    });
+    const coherentMessages = (coherent.body as { messages: Array<{ content: Array<Record<string, unknown>> }> }).messages;
+    const coherentTool = coherentMessages[0].content[0];
+    expect((coherentTool.input as Record<string, unknown>).file_path).toBe('source.ts');
+    expect(JSON.stringify(coherent.body)).not.toContain(originalPath);
+    expect(session.rehydrateText('Edit source.ts')).toBe(`Edit ${originalPath}`);
+    expect(rehydrateJsonValue({ input: { file_path: 'source.ts' } }, new RenameMap(), session)).toEqual({
+      input: { file_path: originalPath },
+    });
+
+    const pool = await transformRequestBody(toolResultRequest(originalPath, 'pool', source), new RenameMap(), {
+      mode: 'pool',
+    });
+    const poolMessages = (pool.body as { messages: Array<{ content: Array<Record<string, unknown>> }> }).messages;
+    expect((poolMessages[0].content[0].input as Record<string, unknown>).file_path).toBe(originalPath);
+  });
+
+  it('keeps multiple aliased paths distinct across model tool calls', async () => {
+    const session = new CoherentCoverStorySession();
+    const first = session.aliasPath('/workspace/billing/settlement-reserve.ts');
+    const second = session.aliasPath('/workspace/healthcare/prior-authorization.ts');
+    expect(first).toBe('source.ts');
+    expect(second).toBe('source_2.ts');
+    expect(session.rehydrateText(`${first} -> ${second}`)).toBe(
+      '/workspace/billing/settlement-reserve.ts -> /workspace/healthcare/prior-authorization.ts',
+    );
+  });
+
   it('reserves synthetic names across different files in one session', async () => {
     const session = new CoherentCoverStorySession();
     const first = await session.transform('src/first.ts', 'export function first(value: number): number { return value + 1; }');

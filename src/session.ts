@@ -22,6 +22,12 @@ interface StoredCoverStoryPlan {
   lastUsedAt: number;
 }
 
+interface StoredPathAlias {
+  original: string;
+  alias: string;
+  lastUsedAt: number;
+}
+
 /**
  * Session-lifetime registry for the additive coherent mode. Plans are kept
  * per file label so prior conversation turns remain rehydratable. The
@@ -32,6 +38,7 @@ export class CoherentCoverStorySession {
   private readonly plans: StoredCoverStoryPlan[] = [];
   private readonly identifiers = new Map<string, string>();
   private readonly strings = new Map<string, string>();
+  private readonly pathAliases: StoredPathAlias[] = [];
 
   constructor(
     private readonly maxPlans = 10_000,
@@ -60,6 +67,73 @@ export class CoherentCoverStorySession {
     return result;
   }
 
+  /**
+   * Gives the model a neutral path while keeping the exact local path in
+   * memory for the response-side tool call. Aliases are session-scoped so a
+   * repeated Read/Edit/Write call keeps the same path in the model context.
+   */
+  aliasPath(original: string): string {
+    this.purgeExpired();
+    const existing = this.pathAliases.find((entry) => entry.original === original);
+    if (existing) {
+      existing.lastUsedAt = Date.now();
+      return existing.alias;
+    }
+
+    const extension = original.match(/\.[A-Za-z0-9]+$/)?.[0] ?? '';
+    let counter = 1;
+    let alias = `source${extension}`;
+    const aliases = new Set(this.pathAliases.map((entry) => entry.alias));
+    while (aliases.has(alias)) {
+      counter += 1;
+      alias = `source_${counter}${extension}`;
+    }
+
+    this.pathAliases.push({ original, alias, lastUsedAt: Date.now() });
+    this.trimPathAliases();
+    return alias;
+  }
+
+  rehydratePath(alias: string): string {
+    this.purgeExpired();
+    const entry = this.pathAliases.find((candidate) => candidate.alias === alias);
+    if (!entry) return alias;
+    entry.lastUsedAt = Date.now();
+    return entry.original;
+  }
+
+  rehydratePathsInText(text: string): string {
+    this.purgeExpired();
+    const now = Date.now();
+    const aliases = [...this.pathAliases]
+      .sort((left, right) => right.alias.length - left.alias.length)
+      .map((entry) => {
+        entry.lastUsedAt = now;
+        return [entry.alias, entry.original] as const;
+      });
+    let output = text;
+    for (const [alias, original] of aliases) {
+      output = output.replace(new RegExp(escapeRegExp(alias), 'g'), original);
+    }
+    return output;
+  }
+
+  aliasPathsInText(text: string): string {
+    this.purgeExpired();
+    const now = Date.now();
+    const paths = [...this.pathAliases]
+      .sort((left, right) => right.original.length - left.original.length)
+      .map((entry) => {
+        entry.lastUsedAt = now;
+        return [entry.original, entry.alias] as const;
+      });
+    let output = text;
+    for (const [original, alias] of paths) {
+      output = output.replace(new RegExp(escapeRegExp(original), 'g'), alias);
+    }
+    return output;
+  }
+
   rehydrateText(text: string): string {
     this.purgeExpired();
     const now = Date.now();
@@ -68,7 +142,7 @@ export class CoherentCoverStorySession {
       stored.lastUsedAt = now;
       output = rehydrateCoverStoryText(output, stored.plan);
     }
-    return output;
+    return this.rehydratePathsInText(output);
   }
 
   syntheticNames(): string[] {
@@ -86,14 +160,24 @@ export class CoherentCoverStorySession {
   private purgeExpired(): void {
     const cutoff = Date.now() - this.ttlMs;
     const retained = this.plans.filter((stored) => stored.lastUsedAt > cutoff);
-    if (retained.length === this.plans.length) return;
-    this.plans.splice(0, this.plans.length, ...retained);
-    this.rebuildReverseMaps();
+    if (retained.length !== this.plans.length) {
+      this.plans.splice(0, this.plans.length, ...retained);
+      this.rebuildReverseMaps();
+    }
+    const retainedPaths = this.pathAliases.filter((entry) => entry.lastUsedAt > cutoff);
+    if (retainedPaths.length !== this.pathAliases.length) {
+      this.pathAliases.splice(0, this.pathAliases.length, ...retainedPaths);
+    }
   }
 
   private trimToLimit(): void {
     if (this.plans.length <= this.maxPlans) return;
     this.plans.splice(0, this.plans.length - this.maxPlans);
+  }
+
+  private trimPathAliases(): void {
+    if (this.pathAliases.length <= this.maxPlans) return;
+    this.pathAliases.splice(0, this.pathAliases.length - this.maxPlans);
   }
 
   private rebuildReverseMaps(): void {
@@ -106,6 +190,10 @@ export class CoherentCoverStorySession {
       }
     }
   }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export const coherentCoverStorySession = new CoherentCoverStorySession(

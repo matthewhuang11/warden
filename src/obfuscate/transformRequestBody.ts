@@ -44,8 +44,8 @@ const BASH_TOOL_NAMES = new Set(['Bash']);
 
 /**
  * Walks an Anthropic Messages API request body looking for source code in
- * Edit/Write tool inputs and tool-result content. File paths remain exact so
- * local tool calls cannot drift to a synthetic path that does not exist.
+ * Edit/Write tool inputs and tool-result content. Coherent mode also aliases
+ * tool file paths before the model sees them; pool mode leaves paths exact.
  */
 export async function transformRequestBody(
   body: unknown,
@@ -69,6 +69,10 @@ export async function transformRequestBody(
 
   if (!isRecord(body) || !Array.isArray(body.messages)) {
     return { body, stats };
+  }
+
+  if (options.mode === 'coherent' && options.coherentSession) {
+    aliasCoherentPaths(body.messages, options.coherentSession);
   }
 
   const toolCallById = buildToolCallById(body.messages);
@@ -156,6 +160,33 @@ function deriveLabel(toolName: string, input: Record<string, unknown>): string {
     return `Bash: ${command}`;
   }
   return toolName;
+}
+
+function aliasCoherentPaths(messages: unknown[], session: CoherentCoverStorySession): void {
+  for (const message of messages) {
+    if (!isRecord(message) || !Array.isArray(message.content)) continue;
+    for (const block of message.content) {
+      if (!isRecord(block)) continue;
+      if (block.type === 'tool_use' && isRecord(block.input)) {
+        if (typeof block.input.file_path === 'string' && block.input.file_path.length > 0) {
+          block.input.file_path = session.aliasPath(block.input.file_path);
+        }
+      }
+      replaceAliasedPathsInTextBlocks(block, session);
+    }
+  }
+}
+
+function replaceAliasedPathsInTextBlocks(block: Record<string, unknown>, session: CoherentCoverStorySession): void {
+  if (typeof block.text === 'string') block.text = session.aliasPathsInText(block.text);
+  if (typeof block.content === 'string') block.content = session.aliasPathsInText(block.content);
+  if (Array.isArray(block.content)) {
+    for (const inner of block.content) {
+      if (isRecord(inner) && typeof inner.text === 'string') {
+        inner.text = session.aliasPathsInText(inner.text);
+      }
+    }
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
