@@ -378,6 +378,10 @@ export function inferStructuralShape(root: Parser.SyntaxNode): StructuralShape {
       shape.stringLiterals++;
       if (node.parent?.type === 'literal_type' && node.parent.parent?.type === 'union_type') enumValues.add(node.text);
     }
+    if (node.type === 'enum_member' || node.type === 'enum_assignment') {
+      const name = node.childForFieldName('name') ?? node.namedChildren[0];
+      if (name) enumValues.add(name.text);
+    }
     if (node.type === 'return_statement') {
       const value = node.childForFieldName('value');
       if (value?.type === 'object') shape.returnedObjectFields = Math.max(shape.returnedObjectFields, value.namedChildren.filter((child) => child.type === 'pair').length);
@@ -426,6 +430,18 @@ function collectNameCandidates(root: Parser.SyntaxNode): NameCandidate[] {
     } else if (node.type === 'interface_declaration' || node.type === 'type_alias_declaration') {
       const name = node.childForFieldName('name');
       if (name) add(name, 'type');
+    } else if (node.type === 'enum_declaration') {
+      const name = node.childForFieldName('name');
+      if (name) add(name, 'type');
+    } else if (node.type === 'enum_member' || node.type === 'enum_assignment') {
+      const name = node.childForFieldName('name') ?? node.namedChildren[0];
+      if (name) {
+        declaredMemberNames.add(name.text);
+        add(name, 'property', 'enum-member');
+      }
+    } else if (node.type === 'type_parameter') {
+      const name = node.childForFieldName('name') ?? node.namedChildren[0];
+      if (name) add(name, 'type');
     } else if (node.type === 'variable_declarator') {
       const name = node.childForFieldName('name');
       const role = classifyVariableInitializer(node.childForFieldName('value'));
@@ -436,6 +452,12 @@ function collectNameCandidates(root: Parser.SyntaxNode): NameCandidate[] {
     } else if (node.type === 'method_definition') {
       const name = node.childForFieldName('name');
       if (name) add(name, 'function');
+    } else if (node.type === 'method_signature') {
+      const name = node.childForFieldName('name');
+      if (name) {
+        declaredMemberNames.add(name.text);
+        add(name, 'function');
+      }
     } else if (node.type === 'public_field_definition') {
       const name = node.childForFieldName('name');
       if (name) add(name, 'property');
@@ -450,6 +472,12 @@ function collectNameCandidates(root: Parser.SyntaxNode): NameCandidate[] {
         declaredMemberNames.has(property.text) &&
         !(object?.type === 'identifier' && RESERVED_GLOBALS.has(object.text))
       ) add(property, 'property');
+    } else if (node.type === 'function_expression') {
+      const name = node.childForFieldName('name');
+      if (name) add(name, 'function');
+    } else if (node.type === 'catch_clause') {
+      const parameter = node.childForFieldName('parameter');
+      if (parameter) collectPatternBindings(parameter, (binding) => add(binding, 'variable'));
     }
   });
 
@@ -539,9 +567,11 @@ function allocateIdentifierMappings(
         ? domain.typePrefixes
         : candidate.category === 'class'
           ? domain.classNames
-          : candidate.role === 'boolean'
-            ? domain.booleanVariables
-            : candidate.role === 'enum'
+            : candidate.role === 'boolean'
+              ? domain.booleanVariables
+              : candidate.role === 'enum-member'
+                ? domain.enumValues
+              : candidate.role === 'enum'
               ? domain.enumProperties
               : candidate.category === 'property' && candidate.role === 'number'
                 ? domain.numberProperties
@@ -556,8 +586,10 @@ function allocateIdentifierMappings(
         ? typeIndex++
         : candidate.category === 'class'
           ? classIndex++
-          : candidate.role === 'boolean'
+            : candidate.role === 'boolean'
             ? booleanIndex++
+            : candidate.role === 'enum-member'
+              ? enumIndex++
             : candidate.role === 'enum'
               ? enumIndex++
               : candidate.category === 'property' && candidate.role === 'number'
@@ -597,6 +629,8 @@ function namePoolFor(candidate: NameCandidate, primary: readonly string[], domai
       ? [...domain.numberProperties, ...domain.variables, ...numericFallbacks]
       : candidate.role === 'boolean'
         ? [...domain.booleanProperties, ...domain.booleanVariables, ...booleanFallbacks]
+        : candidate.role === 'enum-member'
+          ? domain.enumValues
         : candidate.role === 'enum'
           ? domain.enumProperties
           : [...domain.variables, ...domain.numberProperties, ...domain.enumProperties, ...numericFallbacks];
@@ -678,6 +712,7 @@ function isRenameableIdentifierSite(node: Parser.SyntaxNode, identifierMap: Map<
     node.type !== 'identifier' &&
     node.type !== 'type_identifier' &&
     node.type !== 'property_identifier' &&
+    node.type !== 'jsx_identifier' &&
     node.type !== 'shorthand_property_identifier' &&
     node.type !== 'shorthand_property_identifier_pattern'
   ) return false;
@@ -689,7 +724,7 @@ function validateCoverStory(output: string, plan: CoverStoryPlan, parser: Parser
   const tree = parser.parse(output);
   const parseable = !tree.rootNode.hasError;
   const tokens = new Set(output.match(/[A-Za-z_$][\w$]*/g) ?? []);
-  const remainingRealNames = plan.identifierMappings.map((mapping) => mapping.original).filter((name) => tokens.has(name));
+  const remainingRealNames = findRemainingRealNames(tree.rootNode, plan.identifierMappings);
   const allDomainTerms = new Set(DOMAINS.flatMap(domainSignature));
   const ownTerms = new Set(domainSignature(plan.domain));
   const foreignVocabulary = [...allDomainTerms].filter((term) => !ownTerms.has(term) && tokens.has(term));
@@ -705,6 +740,21 @@ function validateCoverStory(output: string, plan: CoverStoryPlan, parser: Parser
     shapePreserved,
     reason: valid ? null : describeValidationFailure(parseable, remainingRealNames, foreignVocabulary, shapePreserved),
   };
+}
+
+function findRemainingRealNames(root: Parser.SyntaxNode, mappings: readonly CoverStoryMapping[]): string[] {
+  const identifierMap = new Map(mappings.map((mapping) => [mapping.original, mapping.synthetic]));
+  const remaining = new Set<string>();
+  walk(root, (node) => {
+    if (node.type === 'comment') {
+      for (const mapping of mappings) {
+        if (new RegExp(`\\b${escapeRegExp(mapping.original)}\\b`).test(node.text)) remaining.add(mapping.original);
+      }
+      return;
+    }
+    if (isRenameableIdentifierSite(node, identifierMap)) remaining.add(node.text);
+  });
+  return mappings.map((mapping) => mapping.original).filter((name) => remaining.has(name));
 }
 
 function domainSignature(domain: CoverStoryDomain): string[] {
@@ -734,6 +784,10 @@ function describeValidationFailure(parseable: boolean, remaining: string[], fore
   if (foreign.length > 0) return `foreign cover vocabulary is mixed in: ${foreign.join(', ')}`;
   if (!shapePreserved) return 'AST structural fingerprint changed';
   return 'cover story validation failed';
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function applyEdits(source: string, edits: TextEdit[]): string {

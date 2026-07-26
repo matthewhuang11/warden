@@ -121,4 +121,42 @@ describe('coherent cover story mode', () => {
     expect(result.output).not.toContain("'ready'");
     expect(rehydrateCoverStoryText(result.output, result.plan)).toBe(source);
   });
+
+  it('renames enum members, generic parameters, method signatures, and catch bindings', async () => {
+    const source = [
+      "enum WorkState { Pending = 'pending', Approved = 'approved', Rejected = 'rejected' }",
+      'interface WorkBox<T extends Record<string, unknown>> { choose(input: T): WorkState; }',
+      'export function readWork<T extends Record<string, unknown>>(box: WorkBox<T>): WorkState {',
+      '  try { return box.choose({} as T); } catch (failure) { return WorkState.Rejected; }',
+      '}',
+    ].join('\n');
+    const result = await transformCoherentCoverStory(source);
+
+    expect(result.validation.valid, result.validation.reason ?? undefined).toBe(true);
+    expect(result.output).not.toContain('WorkState');
+    expect(result.output).not.toContain('WorkBox');
+    expect(result.output).not.toContain('Pending');
+    expect(result.output).not.toContain('Rejected');
+    expect(result.output).not.toContain('failure');
+    expect(result.plan.shape.enumLiteralArity).toBe(3);
+    expect(rehydrateCoverStoryText(result.output, result.plan)).toBe(source);
+  });
+
+  it('keeps TSX component and prop bindings coherent', async () => {
+    const source = [
+      "interface WidgetProps { label: string; count: number; }",
+      'const Widget = ({ label, count }: WidgetProps) => <section data-label={label}>{count}</section>;',
+      'export function renderWidget(props: WidgetProps) {',
+      '  return <Widget label={props.label} count={props.count} />;',
+      '}',
+    ].join('\n');
+    const result = await transformCoherentCoverStory(source);
+
+    expect(result.plan.dialect).toBe('tsx');
+    expect(result.validation.valid, result.validation.reason ?? undefined).toBe(true);
+    expect(result.output).not.toContain('WidgetProps');
+    expect(result.output).not.toContain('renderWidget');
+    expect(result.output).toContain('data-label');
+    expect(rehydrateCoverStoryText(result.output, result.plan)).toBe(source);
+  });
 });
