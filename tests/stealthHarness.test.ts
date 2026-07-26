@@ -68,6 +68,8 @@ describe('stealth harness guardrails', () => {
   it('selects direct Anthropic API mode and builds a Read tool-result conversation', () => {
     const config = readHarnessConfig(['--direct-api'], cappedEnv);
     expect(config.clientMode).toBe('anthropic-api');
+    expect(config.model).toBe('claude-sonnet-4-20250514');
+    expect(config.judgeModel).toBe('claude-sonnet-4-20250514');
     expect(buildDirectApiMessages(config, 'examples/example.ts', 'const realName = 1;', 1)).toEqual([
       expect.objectContaining({ role: 'user' }),
       expect.objectContaining({ role: 'assistant', content: [expect.objectContaining({ type: 'tool_use', name: 'Read' })] }),

@@ -147,6 +147,8 @@ export function readHarnessConfig(
   const clientMode = options.directApi ? 'anthropic-api' : 'claude-cli';
   if (options.directApi && options.useCliAuth) throw new Error('--direct-api requires a dedicated API key, not --use-cli-auth');
   if (!options.dryRun && authMode === 'dedicated-key') validateDedicatedKey(testApiKey, env.ANTHROPIC_API_KEY);
+  const model = env.WARDEN_STEALTH_MODEL ?? (clientMode === 'anthropic-api' ? 'claude-sonnet-4-20250514' : 'sonnet');
+  const judgeModel = env.WARDEN_STEALTH_JUDGE_MODEL ?? (clientMode === 'anthropic-api' ? model : env.WARDEN_STEALTH_MODEL ?? 'sonnet');
 
   return {
     cwd,
@@ -160,8 +162,8 @@ export function readHarnessConfig(
     clientMode,
     testApiKey,
     claudeBin: env.WARDEN_STEALTH_CLAUDE_BIN ?? 'claude',
-    model: env.WARDEN_STEALTH_MODEL ?? 'sonnet',
-    judgeModel: env.WARDEN_STEALTH_JUDGE_MODEL ?? env.WARDEN_STEALTH_MODEL ?? 'sonnet',
+    model,
+    judgeModel,
     outputDir: path.resolve(cwd, options.outputDir ?? '.warden/stealth-runs'),
     dryRun: options.dryRun,
   };
