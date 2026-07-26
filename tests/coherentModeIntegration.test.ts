@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readConfig } from '../src/config.js';
 import { transformRequestBody } from '../src/obfuscate/transformRequestBody.js';
 import { RenameMap } from '../src/obfuscate/renameMap.js';
@@ -101,5 +101,23 @@ describe('coherent mode integration', () => {
       }) + sseEvent('content_block_stop', { type: 'content_block_stop', index: 0 });
     const output = await collect(rehydrateSseStream(oneChunk(raw), new RenameMap(), session));
     expect(output).toContain('Call computeTotal');
+  });
+
+  it('bounds coherent session plans by capacity and idle TTL', async () => {
+    const session = new CoherentCoverStorySession(1, 1_000);
+    await session.transform('src/first.ts', 'export function first(value: number): number { return value; }');
+    await session.transform('src/second.ts', 'export function second(value: number): number { return value; }');
+    expect(session.size).toBe(1);
+
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(0);
+      const expiring = new CoherentCoverStorySession(10, 1_000);
+      await expiring.transform('src/expiring.ts', 'export function expiring(value: number): number { return value; }');
+      vi.advanceTimersByTime(1_001);
+      expect(expiring.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

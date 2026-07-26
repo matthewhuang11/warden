@@ -19,6 +19,7 @@ export const sessionRenameMap = new RenameMap(config.maxSessionMappings, config.
 interface StoredCoverStoryPlan {
   label: string;
   plan: CoverStoryPlan;
+  lastUsedAt: number;
 }
 
 /**
@@ -32,7 +33,17 @@ export class CoherentCoverStorySession {
   private readonly identifiers = new Map<string, string>();
   private readonly strings = new Map<string, string>();
 
+  constructor(
+    private readonly maxPlans = 10_000,
+    private readonly ttlMs = 30 * 60 * 1000,
+  ) {
+    if (!Number.isSafeInteger(maxPlans) || maxPlans <= 0 || !Number.isSafeInteger(ttlMs) || ttlMs <= 0) {
+      throw new Error('Invalid coherent cover story session limits');
+    }
+  }
+
   async transform(label: string, source: string): Promise<CoherentCoverStoryResult> {
+    this.purgeExpired();
     const result = await transformCoherentCoverStory(source, {
       reservedIdentifierNames: this.identifiers.values(),
       reservedStringValues: this.strings.values(),
@@ -43,31 +54,61 @@ export class CoherentCoverStorySession {
       throw new Error(`Cover story validation failed for ${label}: ${result.validation.reason ?? 'unknown reason'}`);
     }
 
-    this.plans.push({ label, plan: result.plan });
-    for (const mapping of result.plan.identifierMappings) this.identifiers.set(mapping.original, mapping.synthetic);
-    for (const mapping of result.plan.stringMappings) {
-      const original = mapping.original.slice(1, -1);
-      const synthetic = mapping.synthetic.slice(1, -1);
-      this.strings.set(original, synthetic);
-    }
+    this.plans.push({ label, plan: result.plan, lastUsedAt: Date.now() });
+    this.trimToLimit();
+    this.rebuildReverseMaps();
     return result;
   }
 
   rehydrateText(text: string): string {
+    this.purgeExpired();
+    const now = Date.now();
     let output = text;
-    for (const { plan } of this.plans) output = rehydrateCoverStoryText(output, plan);
+    for (const stored of this.plans) {
+      stored.lastUsedAt = now;
+      output = rehydrateCoverStoryText(output, stored.plan);
+    }
     return output;
   }
 
   syntheticNames(): string[] {
+    this.purgeExpired();
     const names = new Set<string>();
     for (const { plan } of this.plans) for (const name of plan.syntheticNames) names.add(name);
     return [...names];
   }
 
   get size(): number {
+    this.purgeExpired();
     return this.plans.length;
+  }
+
+  private purgeExpired(): void {
+    const cutoff = Date.now() - this.ttlMs;
+    const retained = this.plans.filter((stored) => stored.lastUsedAt > cutoff);
+    if (retained.length === this.plans.length) return;
+    this.plans.splice(0, this.plans.length, ...retained);
+    this.rebuildReverseMaps();
+  }
+
+  private trimToLimit(): void {
+    if (this.plans.length <= this.maxPlans) return;
+    this.plans.splice(0, this.plans.length - this.maxPlans);
+  }
+
+  private rebuildReverseMaps(): void {
+    this.identifiers.clear();
+    this.strings.clear();
+    for (const { plan } of this.plans) {
+      for (const mapping of plan.identifierMappings) this.identifiers.set(mapping.original, mapping.synthetic);
+      for (const mapping of plan.stringMappings) {
+        this.strings.set(mapping.original.slice(1, -1), mapping.synthetic.slice(1, -1));
+      }
+    }
   }
 }
 
-export const coherentCoverStorySession = new CoherentCoverStorySession();
+export const coherentCoverStorySession = new CoherentCoverStorySession(
+  config.maxSessionMappings,
+  config.sessionMappingTtlMs,
+);
