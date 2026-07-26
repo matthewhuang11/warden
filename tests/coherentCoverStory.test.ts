@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import { transformCoherentCoverStory } from '../src/obfuscate/coherentCoverStory.js';
+import { transformCoherentCoverStory, validateCoherentCoverStoryOutput } from '../src/obfuscate/coherentCoverStory.js';
 import { rehydrateCoverStoryText } from '../src/rehydrate/rehydrateCoverStory.js';
 
 const fixturePaths = [
@@ -56,5 +56,22 @@ describe('coherent cover story mode', () => {
     expect(rehydrated).toContain('chooseWork');
     expect(rehydrated).toContain('state');
   });
-});
 
+  it('flags a second catalog vocabulary before the output can be sent upstream', async () => {
+    const source = [
+      'interface WorkRequest { ready: boolean; }',
+      'interface WorkDecision { state: \'open\' | \'hold\'; }',
+      'export function chooseWork(request: WorkRequest): WorkDecision {',
+      '  return request.ready ? { state: \'open\' } : { state: \'hold\' };',
+      '}',
+    ].join('\n');
+    const result = await transformCoherentCoverStory(source);
+    const ownType = result.plan.domain.typePrefixes[0];
+    const foreignType = result.plan.domain.id === 'recipe-scoring' ? 'ParcelRequest' : 'RecipeProfile';
+    const mixed = result.output.replace(new RegExp(`\\b${ownType}\\b`, 'g'), foreignType);
+    const validation = await validateCoherentCoverStoryOutput(mixed, result.plan);
+
+    expect(validation.valid).toBe(false);
+    expect(validation.foreignVocabulary).toContain(foreignType);
+  });
+});

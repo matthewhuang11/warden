@@ -81,6 +81,11 @@ export interface CoherentCoverStoryResult {
   commentsRewritten: number;
 }
 
+export async function validateCoherentCoverStoryOutput(output: string, plan: CoverStoryPlan): Promise<CoverStoryValidation> {
+  const parser = await getParser(plan.dialect);
+  return validateCoverStory(output, plan, parser);
+}
+
 interface TextEdit {
   startIndex: number;
   endIndex: number;
@@ -546,8 +551,8 @@ function validateCoverStory(output: string, plan: CoverStoryPlan, parser: Parser
   const parseable = !tree.rootNode.hasError;
   const tokens = new Set(output.match(/[A-Za-z_$][\w$]*/g) ?? []);
   const remainingRealNames = plan.identifierMappings.map((mapping) => mapping.original).filter((name) => tokens.has(name));
-  const allDomainTerms = new Set(DOMAINS.flatMap((domain) => domain.vocabulary));
-  const ownTerms = new Set(plan.domain.vocabulary);
+  const allDomainTerms = new Set(DOMAINS.flatMap(domainSignature));
+  const ownTerms = new Set(domainSignature(plan.domain));
   const foreignVocabulary = [...allDomainTerms].filter((term) => !ownTerms.has(term) && tokens.has(term));
   const missingSyntheticNames = plan.identifierMappings.map((mapping) => mapping.synthetic).filter((name) => !tokens.has(name));
   const shapePreserved = parseable && sameShape(inferStructuralShape(tree.rootNode), plan.shape);
@@ -561,6 +566,21 @@ function validateCoverStory(output: string, plan: CoverStoryPlan, parser: Parser
     shapePreserved,
     reason: valid ? null : describeValidationFailure(parseable, remainingRealNames, foreignVocabulary, shapePreserved),
   };
+}
+
+function domainSignature(domain: CoverStoryDomain): string[] {
+  return [
+    ...domain.vocabulary,
+    ...domain.functionPrefixes,
+    ...domain.typePrefixes,
+    ...domain.classNames,
+    ...domain.numberProperties,
+    ...domain.booleanProperties,
+    ...domain.enumProperties,
+    ...domain.variables,
+    ...domain.booleanVariables,
+    ...domain.enumValues,
+  ];
 }
 
 function sameShape(left: StructuralShape, right: StructuralShape): boolean {
