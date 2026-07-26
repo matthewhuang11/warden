@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildLocalReviewMessages,
   detectSuspicionSignals,
+  isAllowedLocalModelEndpoint,
   parseOpenAiChatResponse,
 } from '../scripts/local-model-cover-story-harness.js';
 
@@ -31,5 +32,12 @@ describe('local model cover-story harness helpers', () => {
       'inconsistent-domain',
     ]);
     expect(detectSuspicionSignals('The function has an off-by-one error.')).toEqual([]);
+  });
+
+  it('keeps the local-model harness loopback-only by default', () => {
+    expect(isAllowedLocalModelEndpoint('http://127.0.0.1:1234/v1/chat/completions')).toBe(true);
+    expect(isAllowedLocalModelEndpoint('http://localhost:1234/v1/chat/completions')).toBe(true);
+    expect(isAllowedLocalModelEndpoint('https://model.example.test/v1/chat/completions')).toBe(false);
+    expect(isAllowedLocalModelEndpoint('https://model.example.test/v1/chat/completions', true)).toBe(true);
   });
 });

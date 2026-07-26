@@ -97,6 +97,18 @@ export function detectSuspicionSignals(response: string): string[] {
   return rules.filter(([, pattern]) => pattern.test(response)).map(([name]) => name);
 }
 
+export function isAllowedLocalModelEndpoint(rawEndpoint: string, allowRemote = false): boolean {
+  let endpoint: URL;
+  try {
+    endpoint = new URL(rawEndpoint);
+  } catch {
+    return false;
+  }
+  if (endpoint.protocol !== 'http:' && endpoint.protocol !== 'https:') return false;
+  if (allowRemote) return true;
+  return endpoint.hostname === '127.0.0.1' || endpoint.hostname === 'localhost' || endpoint.hostname === '::1';
+}
+
 async function callLocalModel(config: LocalHarnessConfig, messages: ChatMessage[]): Promise<string> {
   const response = await fetch(config.endpoint, {
     method: 'POST',
@@ -174,6 +186,9 @@ function readConfig(argv: string[], env: NodeJS.ProcessEnv = process.env, cwd = 
   const options = parseArgs(argv);
   const endpoint = env.WARDEN_LOCAL_MODEL_URL ?? '';
   if (!options.dryRun && endpoint.length === 0) throw new Error('WARDEN_LOCAL_MODEL_URL must point to a local OpenAI-compatible /v1/chat/completions endpoint');
+  if (endpoint.length > 0 && !isAllowedLocalModelEndpoint(endpoint, env.WARDEN_LOCAL_MODEL_ALLOW_REMOTE === '1')) {
+    throw new Error('WARDEN_LOCAL_MODEL_URL must be loopback; set WARDEN_LOCAL_MODEL_ALLOW_REMOTE=1 only for an intentional remote evaluation');
+  }
   const timeoutMs = Number(env.WARDEN_LOCAL_MODEL_TIMEOUT_MS ?? '30000');
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error('WARDEN_LOCAL_MODEL_TIMEOUT_MS must be positive');
   if (!Number.isSafeInteger(options.runs) || options.runs <= 0) throw new Error('--runs must be a positive integer');

@@ -69,6 +69,9 @@ are heuristic diagnostics only, not a model verdict. Use `--fixture` to
 isolate one fixture and `--dry-run` to verify argument parsing without a
 model call.
 
+The A/B harness is loopback-only by default. A remote endpoint requires the
+explicit opt-in `WARDEN_LOCAL_MODEL_ALLOW_REMOTE=1`.
+
 ## Tuning set
 
 - `fixtures/tuning/fintech/credit-line-policy.ts` evaluates revolving credit capacity.
