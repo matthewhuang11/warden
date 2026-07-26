@@ -190,6 +190,7 @@ export class CoherentCoverStorySession {
     this.purgeExpired();
     const names = new Set<string>();
     for (const { plan } of this.plans) for (const name of plan.syntheticNames) names.add(name);
+    for (const entry of this.pathAliases) names.add(entry.alias);
     return [...names];
   }
 

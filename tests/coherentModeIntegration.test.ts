@@ -204,6 +204,27 @@ describe('coherent mode integration', () => {
     expect(output).toContain('Call computeTotal');
   });
 
+  it('rehydrates a split path alias in streamed text', async () => {
+    const session = new CoherentCoverStorySession();
+    const originalPath = '/workspace/healthcare/prior-authorization.ts';
+    const alias = session.aliasPath(originalPath);
+    const raw =
+      sseEvent('content_block_delta', {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: `${'x'.repeat(20)} ${alias.slice(0, -2)}` },
+      }) +
+      sseEvent('content_block_delta', {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: alias.slice(-2) },
+      }) +
+      sseEvent('content_block_stop', { type: 'content_block_stop', index: 0 });
+    const output = await collect(rehydrateSseStream(oneChunk(raw), new RenameMap(), session));
+    expect(output).toContain(originalPath);
+    expect(output).not.toContain(alias);
+  });
+
   it('bounds coherent session plans by capacity and idle TTL', async () => {
     const session = new CoherentCoverStorySession(1, 1_000);
     await session.transform('src/first.ts', 'export function first(value: number): number { return value; }');
