@@ -401,6 +401,7 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
   const contentType = upstreamResponse.headers.get('content-type') ?? '';
 
   if (shouldObfuscate && contentType.includes('text/event-stream')) {
+    const commentAdapter = config.coverStoryMode === 'coherent' ? createConfiguredLocalCommentAdapter() : undefined;
     res.writeHead(upstreamResponse.status, buildResponseHeaders(upstreamResponse));
     const upstreamNodeStream = Readable.fromWeb(upstreamResponse.body as import('node:stream/web').ReadableStream);
     const rehydratedStream = limitSseStream(
@@ -409,6 +410,7 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
           upstreamNodeStream,
           sessionRenameMap,
           config.coverStoryMode === 'coherent' ? coherentCoverStorySession : undefined,
+          commentAdapter,
         ),
       ),
     );

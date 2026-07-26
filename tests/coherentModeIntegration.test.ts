@@ -269,6 +269,45 @@ describe('coherent mode integration', () => {
     expect(output).toContain('Call computeTotal');
   });
 
+  it('buffers SSE text blocks when a semantic comment adapter is enabled', async () => {
+    const session = new CoherentCoverStorySession();
+    const source = [
+      'export function decide(value: number): number {',
+      '  if (value > 1) return value;',
+      '  if (value > 2) return value;',
+      '  if (value > 3) return value;',
+      '  return 0;',
+      '}',
+    ].join('\n');
+    const result = await session.transform('src/decisions.ts', source);
+    const unresolvedTerm = result.plan.domain.vocabulary.find((term) => !result.plan.commentTerms.has(term));
+    expect(unresolvedTerm).toBeDefined();
+    const fakeComment = `// Check the ${unresolvedTerm} before the next ${result.plan.domain.action}ing step.`;
+    let adapterCalls = 0;
+    const raw =
+      sseEvent('content_block_delta', {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: fakeComment },
+      }) + sseEvent('content_block_stop', { type: 'content_block_stop', index: 0 });
+
+    const output = await collect(rehydrateSseStream(
+      oneChunk(raw),
+      new RenameMap(),
+      session,
+      {
+        async rewriteComment() {
+          adapterCalls++;
+          return '// Check the original decision.';
+        },
+      },
+    ));
+
+    expect(adapterCalls).toBe(1);
+    expect(output).toContain('// Check the original decision.');
+    expect(output).not.toContain(unresolvedTerm);
+  });
+
   it('rehydrates a split path alias in streamed text', async () => {
     const session = new CoherentCoverStorySession();
     const originalPath = '/workspace/healthcare/prior-authorization.ts';

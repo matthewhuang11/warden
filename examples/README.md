@@ -48,8 +48,10 @@ export WARDEN_COVER_STORY_COMMENT_MODEL_URL='http://127.0.0.1:1234/v1/chat/compl
 export WARDEN_COVER_STORY_COMMENT_MODEL='your-local-model'
 ```
 
-The adapter is an actual model call, is disabled when the URL is absent, and
-does not run on streamed SSE responses. Remote endpoints require
+The adapter is an actual model call and is disabled when the URL is absent.
+When enabled for SSE, text blocks are buffered until their stop event so the
+adapter can rewrite comments before emission; this trades streaming latency
+for semantic comment rehydration. Remote endpoints require
 `WARDEN_COVER_STORY_COMMENT_MODEL_ALLOW_REMOTE=1`.
 
 ## Tuning set

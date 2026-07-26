@@ -1,5 +1,6 @@
 import type { RenameMap } from '../obfuscate/renameMap.js';
 import type { CoherentCoverStorySession } from '../session.js';
+import type { CoverStoryCommentAdapter } from './rehydrateCoverStory.js';
 import { logger } from '../log.js';
 import { rehydrateText } from './rehydrateText.js';
 
@@ -41,11 +42,13 @@ function buildDeltaEventText(frame: DeltaFrame): string {
  */
 class SseRehydrator {
   private readonly textPending = new Map<number, string>();
+  private readonly textBlockBuffer = new Map<number, string>();
   private readonly jsonBuffer = new Map<number, string>();
 
   constructor(
     private readonly renameMap: RenameMap,
     private readonly coherentSession?: CoherentCoverStorySession,
+    private readonly commentAdapter?: CoverStoryCommentAdapter,
   ) {}
 
   private safeTextLength(text: string, desiredLength: number): number {
@@ -62,7 +65,7 @@ class SseRehydrator {
     return safeLength;
   }
 
-  processFrame(frame: string): string {
+  async processFrame(frame: string): Promise<string> {
     const lines = frame.split('\n');
     const dataLines = lines.filter((l) => l.startsWith('data:'));
     const eventLines = lines.filter((l) => !l.startsWith('data:'));
@@ -87,14 +90,18 @@ class SseRehydrator {
     return frame;
   }
 
-  private handleDelta(
+  private async handleDelta(
     original: string,
     eventLines: string[],
     payload: { type: string; index: number; delta: Record<string, unknown> },
-  ): string {
+  ): Promise<string> {
     const { index, delta } = payload;
 
     if (delta.type === 'text_delta' && typeof delta.text === 'string') {
+      if (this.commentAdapter && this.coherentSession) {
+        this.textBlockBuffer.set(index, (this.textBlockBuffer.get(index) ?? '') + delta.text);
+        return '';
+      }
       const combined = (this.textPending.get(index) ?? '') + delta.text;
       if (combined.length <= TAIL_HOLDBACK) {
         this.textPending.set(index, combined);
@@ -115,11 +122,21 @@ class SseRehydrator {
     return original;
   }
 
-  private handleStop(eventLines: string[], payload: { type: string; index: number }): string {
+  private async handleStop(eventLines: string[], payload: { type: string; index: number }): Promise<string> {
     const { index } = payload;
     const stopFrame = `${eventLines.join('\n')}\ndata: ${JSON.stringify(payload)}`;
 
     const parts: string[] = [];
+
+    const textBlock = this.textBlockBuffer.get(index);
+    this.textBlockBuffer.delete(index);
+    if (textBlock !== undefined && this.coherentSession && this.commentAdapter) {
+      parts.push(buildDeltaEventText({
+        index,
+        kind: 'text_delta',
+        text: await this.coherentSession.rehydrateTextWithCommentAdapter(textBlock, this.commentAdapter),
+      }));
+    }
 
     const textLeftover = this.textPending.get(index);
     this.textPending.delete(index);
@@ -130,7 +147,10 @@ class SseRehydrator {
     const jsonFull = this.jsonBuffer.get(index);
     this.jsonBuffer.delete(index);
     if (jsonFull) {
-      parts.push(buildDeltaEventText({ index, kind: 'input_json_delta', text: rehydrateText(jsonFull, this.renameMap, this.coherentSession) }));
+      const text = this.coherentSession && this.commentAdapter
+        ? await this.coherentSession.rehydrateTextWithCommentAdapter(jsonFull, this.commentAdapter)
+        : rehydrateText(jsonFull, this.renameMap, this.coherentSession);
+      parts.push(buildDeltaEventText({ index, kind: 'input_json_delta', text }));
     }
 
     parts.push(stopFrame);
@@ -139,8 +159,14 @@ class SseRehydrator {
 
   /** Safety net: emit anything still buffered if the stream ends without
    * proper stop events, so rehydrated content is never silently dropped. */
-  flushRemaining(): string {
+  async flushRemaining(): Promise<string> {
     const parts: string[] = [];
+    for (const [index, text] of this.textBlockBuffer) {
+      const output = this.coherentSession && this.commentAdapter
+        ? await this.coherentSession.rehydrateTextWithCommentAdapter(text, this.commentAdapter)
+        : rehydrateText(text, this.renameMap, this.coherentSession);
+      parts.push(buildDeltaEventText({ index, kind: 'text_delta', text: output }));
+    }
     for (const [index, text] of this.textPending) {
       parts.push(buildDeltaEventText({ index, kind: 'text_delta', text: rehydrateText(text, this.renameMap, this.coherentSession) }));
     }
@@ -148,6 +174,7 @@ class SseRehydrator {
       parts.push(buildDeltaEventText({ index, kind: 'input_json_delta', text: rehydrateText(text, this.renameMap, this.coherentSession) }));
     }
     this.textPending.clear();
+    this.textBlockBuffer.clear();
     this.jsonBuffer.clear();
     return parts.length > 0 ? parts.join('\n\n') + '\n\n' : '';
   }
@@ -161,8 +188,9 @@ export async function* rehydrateSseStream(
   upstream: AsyncIterable<Uint8Array>,
   renameMap: RenameMap,
   coherentSession?: CoherentCoverStorySession,
+  commentAdapter?: CoverStoryCommentAdapter,
 ): AsyncGenerator<Uint8Array> {
-  const rehydrator = new SseRehydrator(renameMap, coherentSession);
+  const rehydrator = new SseRehydrator(renameMap, coherentSession, commentAdapter);
   const decoder = new TextDecoder('utf-8');
   const encoder = new TextEncoder();
   let buffer = '';
@@ -174,7 +202,7 @@ export async function* rehydrateSseStream(
       while ((sepIndex = buffer.indexOf('\n\n')) !== -1) {
         const frame = buffer.slice(0, sepIndex);
         buffer = buffer.slice(sepIndex + 2);
-        const out = rehydrator.processFrame(frame);
+        const out = await rehydrator.processFrame(frame);
         if (out.length > 0) yield encoder.encode(out + '\n\n');
       }
     }
@@ -185,10 +213,10 @@ export async function* rehydrateSseStream(
 
   buffer += decoder.decode();
   if (buffer.trim().length > 0) {
-    const out = rehydrator.processFrame(buffer);
+    const out = await rehydrator.processFrame(buffer);
     if (out.length > 0) yield encoder.encode(out + '\n\n');
   }
 
-  const trailing = rehydrator.flushRemaining();
+  const trailing = await rehydrator.flushRemaining();
   if (trailing.length > 0) yield encoder.encode(trailing);
 }
