@@ -147,6 +147,39 @@ describe('coherent cover story mode', () => {
     expect(output).not.toContain(unresolvedTerm);
   });
 
+  it('fails closed when a comment adapter returns invalid or still-synthetic prose', async () => {
+    const source = 'export function chooseWork(value: number): number { return value + 1; }';
+    const result = await transformCoherentCoverStory(source);
+    const unresolvedTerm = result.plan.domain.vocabulary.find((term) => !result.plan.commentTerms.has(term));
+    expect(unresolvedTerm).toBeDefined();
+    const addedComment = `// Check the ${unresolvedTerm} before the next ${result.plan.domain.action}ing step.`;
+
+    const invalid = await rehydrateUnresolvedCoverStoryComments(`${result.output}\n${addedComment}`, [result.plan], {
+      async rewriteComment() {
+        return 'not a comment';
+      },
+    });
+    expect(invalid).toContain(addedComment);
+
+    const synthetic = await rehydrateUnresolvedCoverStoryComments(`${result.output}\n${addedComment}`, [result.plan], {
+      async rewriteComment() {
+        return `// Keep the ${unresolvedTerm} unchanged.`;
+      },
+    });
+    expect(synthetic).toContain(addedComment);
+  });
+
+  it('keeps large identifier sets unique and exactly rehydratable', async () => {
+    const declarations = Array.from({ length: 80 }, (_, index) => `const localValue${index} = ${index};`).join('\n');
+    const source = `${declarations}\nexport function chooseWork(input: number): number { return input + localValue79; }`;
+    const result = await transformCoherentCoverStory(source);
+    const syntheticIdentifiers = result.plan.identifierMappings.map((mapping) => mapping.synthetic);
+
+    expect(result.validation.valid, result.validation.reason ?? undefined).toBe(true);
+    expect(new Set(syntheticIdentifiers).size).toBe(syntheticIdentifiers.length);
+    expect(rehydrateCoverStoryText(result.output, result.plan)).toBe(source);
+  });
+
   it('flags a second catalog vocabulary before the output can be sent upstream', async () => {
     const source = [
       'interface WorkRequest { ready: boolean; }',
