@@ -85,6 +85,24 @@ describe('coherent cover story mode', () => {
     expect(rehydrated).toContain('WorkRequest');
     expect(rehydrated).toContain('chooseWork');
     expect(rehydrated).toContain('state');
+    expect(rehydrated).not.toContain(result.plan.domain.noun);
+    expect(rehydrated).not.toContain(`${result.plan.domain.action}ing`);
+    expect(rehydrated).not.toContain(result.plan.domain.statusNoun);
+  });
+
+  it('does not rewrite an original comment after exact restoration', async () => {
+    const source = [
+      '// dispatch lane',
+      'export function decide(value: number): number {',
+      '  if (value > 1) return value;',
+      '  if (value > 2) return value;',
+      '  if (value > 3) return value;',
+      '  return 0;',
+      '}',
+    ].join('\n');
+    const result = await transformCoherentCoverStory(source);
+
+    expect(rehydrateCoverStoryText(result.output, result.plan)).toBe(source);
   });
 
   it('flags a second catalog vocabulary before the output can be sent upstream', async () => {

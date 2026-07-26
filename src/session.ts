@@ -5,7 +5,7 @@ import {
   type CoverStoryPlan,
   type CoherentCoverStoryResult,
 } from './obfuscate/coherentCoverStory.js';
-import { rehydrateAddedCommentTerms, rehydrateCoverStoryText } from './rehydrate/rehydrateCoverStory.js';
+import { rehydrateAddedCommentTermsForPlans, rehydrateCoverStoryText } from './rehydrate/rehydrateCoverStory.js';
 import { config } from './config.js';
 
 // Real names never leave the machine; synthetic names never touch disk.
@@ -37,9 +37,6 @@ interface StoredPathAlias {
  */
 export class CoherentCoverStorySession {
   private readonly plans: StoredCoverStoryPlan[] = [];
-  private readonly identifiers = new Map<string, string>();
-  private readonly strings = new Map<string, string>();
-  private readonly comments = new Map<string, string>();
   private readonly pathAliases: StoredPathAlias[] = [];
 
   constructor(
@@ -53,13 +50,18 @@ export class CoherentCoverStorySession {
 
   async transform(label: string, source: string): Promise<CoherentCoverStoryResult> {
     this.purgeExpired();
+    const previous = [...this.plans].reverse().find((stored) => stored.label === label);
+    const existingIdentifiers = new Map(previous?.plan.identifierMappings.map((mapping) => [mapping.original, mapping.synthetic]));
+    const existingStrings = new Map(previous?.plan.stringMappings.map((mapping) => [mapping.original.slice(1, -1), mapping.synthetic.slice(1, -1)]));
+    const existingComments = new Map(previous?.plan.commentMappings.map((mapping) => [mapping.original, mapping.synthetic]));
     const result = await transformCoherentCoverStory(source, {
-      reservedIdentifierNames: this.identifiers.values(),
-      reservedStringValues: this.strings.values(),
-      reservedCommentTexts: this.comments.values(),
-      existingIdentifiers: this.identifiers,
-      existingStrings: this.strings,
-      existingComments: this.comments,
+      reservedIdentifierNames: this.plans.flatMap(({ plan }) => plan.identifierMappings.map((mapping) => mapping.synthetic)),
+      reservedStringValues: this.plans.flatMap(({ plan }) => plan.stringMappings.map((mapping) => mapping.synthetic.slice(1, -1))),
+      reservedCommentTexts: this.plans.flatMap(({ plan }) => plan.commentMappings.map((mapping) => mapping.synthetic)),
+      preferredDomainId: previous?.plan.domain.id,
+      existingIdentifiers,
+      existingStrings,
+      existingComments,
     });
     if (!result.validation.valid) {
       throw new Error(`Cover story validation failed for ${label}: ${result.validation.reason ?? 'unknown reason'}`);
@@ -67,7 +69,6 @@ export class CoherentCoverStorySession {
 
     this.plans.push({ label, plan: result.plan, lastUsedAt: Date.now() });
     this.trimToLimit();
-    this.rebuildReverseMaps();
     return result;
   }
 
@@ -186,9 +187,7 @@ export class CoherentCoverStorySession {
       stored.lastUsedAt = now;
       output = rehydrateCoverStoryText(output, stored.plan, { includeAddedCommentTerms: false });
     }
-    for (const stored of this.plans) {
-      output = rehydrateAddedCommentTerms(output, stored.plan);
-    }
+    output = rehydrateAddedCommentTermsForPlans(output, this.plans.map((stored) => stored.plan));
     return this.rehydratePathsInText(output);
   }
 
@@ -210,7 +209,6 @@ export class CoherentCoverStorySession {
     const retained = this.plans.filter((stored) => stored.lastUsedAt > cutoff);
     if (retained.length !== this.plans.length) {
       this.plans.splice(0, this.plans.length, ...retained);
-      this.rebuildReverseMaps();
     }
     const retainedPaths = this.pathAliases.filter((entry) => entry.lastUsedAt > cutoff);
     if (retainedPaths.length !== this.pathAliases.length) {
@@ -228,17 +226,6 @@ export class CoherentCoverStorySession {
     this.pathAliases.splice(0, this.pathAliases.length - this.maxPlans);
   }
 
-  private rebuildReverseMaps(): void {
-    this.identifiers.clear();
-    this.strings.clear();
-    for (const { plan } of this.plans) {
-      for (const mapping of plan.identifierMappings) this.identifiers.set(mapping.original, mapping.synthetic);
-      for (const mapping of plan.stringMappings) {
-        this.strings.set(mapping.original.slice(1, -1), mapping.synthetic.slice(1, -1));
-      }
-      for (const mapping of plan.commentMappings) this.comments.set(mapping.original, mapping.synthetic);
-    }
-  }
 }
 
 function escapeRegExp(value: string): string {

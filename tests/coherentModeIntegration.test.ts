@@ -212,6 +212,33 @@ describe('coherent mode integration', () => {
     expect(session.rehydrateText(second.output)).toBe(secondSource);
   });
 
+  it('selects the relevant file glossary for an added comment in a multi-file session', async () => {
+    const session = new CoherentCoverStorySession();
+    const firstSource = [
+      'export function first(value: number): number {',
+      '  if (value > 1) return value;',
+      '  if (value > 2) return value;',
+      '  if (value > 3) return value;',
+      '  return 0;',
+      '}',
+    ].join('\n');
+    const secondSource = [
+      'class WorkBox {',
+      '  choose(value: number): number { return value; }',
+      '}',
+    ].join('\n');
+    await session.transform('src/first.ts', firstSource);
+    const second = await session.transform('src/second.ts', secondSource);
+    const addedComment = `// Recheck each ${second.plan.domain.noun} before ${second.plan.domain.action}ing the ${second.plan.domain.statusNoun}.`;
+
+    const rehydrated = session.rehydrateText(`${second.output}\n${addedComment}`);
+
+    expect(rehydrated).toContain('WorkBox');
+    expect(rehydrated).toContain('choose');
+    expect(rehydrated).not.toContain(second.plan.domain.noun);
+    expect(rehydrated).not.toContain(`${second.plan.domain.action}ing`);
+  });
+
   it('uses fresh cover vocabulary instead of numeric suffixes across held-out domains', async () => {
     const session = new CoherentCoverStorySession();
     const firstSource = await readFile('examples/fixtures/held-out/fintech/merchant-payout-schedule.ts', 'utf8');

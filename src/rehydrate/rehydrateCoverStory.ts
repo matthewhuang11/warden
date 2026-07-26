@@ -20,11 +20,20 @@ export function rehydrateCoverStoryText(
   output = replaceQuotedStrings(output, plan.reverseStrings);
   output = replaceIdentifiers(output, plan.reverseIdentifiers);
   output = collapseExpandedShorthand(output, plan.reverseIdentifiers);
-  return options.includeAddedCommentTerms === false ? output : replaceAddedCommentTerms(output, plan.commentTerms);
+  return options.includeAddedCommentTerms === false ? output : rehydrateAddedCommentTermsForPlans(output, [plan]);
 }
 
 export function rehydrateAddedCommentTerms(text: string, plan: CoverStoryPlan): string {
-  return replaceAddedCommentTerms(text, plan.commentTerms);
+  return rehydrateAddedCommentTermsForPlans(text, [plan]);
+}
+
+export function rehydrateAddedCommentTermsForPlans(text: string, plans: readonly CoverStoryPlan[]): string {
+  const knownOriginalComments = new Set(plans.flatMap((plan) => [...plan.reverseComments.values()]));
+  return text.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (comment) => {
+    if (knownOriginalComments.has(comment)) return comment;
+    const plan = selectCommentPlan(comment, plans);
+    return plan ? replaceCommentTerms(comment, plan.commentTerms) : comment;
+  });
 }
 
 function outputComments(text: string, plan: CoverStoryPlan): string {
@@ -72,14 +81,37 @@ function replaceIdentifiers(text: string, replacements: Map<string, string>): st
   return output;
 }
 
-function replaceAddedCommentTerms(text: string, replacements: Map<string, string>): string {
-  return text.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (comment) => {
-    let output = comment;
-    for (const [synthetic, original] of [...replacements.entries()].sort(byKeyLength)) {
-      output = output.replace(new RegExp(`\\b${escapeRegExp(synthetic)}\\b`, 'g'), original);
+function replaceCommentTerms(comment: string, replacements: Map<string, string>): string {
+  let output = comment;
+  for (const [synthetic, original] of [...replacements.entries()].sort(byKeyLength)) {
+    output = output.replace(new RegExp(`\\b${escapeRegExp(synthetic)}\\b`, 'g'), original);
+  }
+  return output;
+}
+
+function selectCommentPlan(comment: string, plans: readonly CoverStoryPlan[]): CoverStoryPlan | undefined {
+  let selected: CoverStoryPlan | undefined;
+  let bestScore = 0;
+  for (const plan of plans) {
+    let score = 0;
+    for (const term of plan.commentTerms.keys()) {
+      if (hasWord(comment, term)) score += 2;
     }
-    return output;
-  });
+    for (const synthetic of plan.reverseIdentifiers.keys()) {
+      if (hasWord(comment, synthetic)) score += 4;
+    }
+    // Later plans win ties because they represent the most recent file in the
+    // conversation, while a strict zero score leaves unrelated comments alone.
+    if (score >= bestScore && score > 0) {
+      selected = plan;
+      bestScore = score;
+    }
+  }
+  return selected;
+}
+
+function hasWord(text: string, value: string): boolean {
+  return new RegExp(`\\b${escapeRegExp(value)}\\b`).test(text);
 }
 
 function collapseExpandedShorthand(text: string, replacements: Map<string, string>): string {

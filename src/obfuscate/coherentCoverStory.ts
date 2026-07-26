@@ -85,6 +85,7 @@ export interface CoherentCoverStoryOptions {
   reservedIdentifierNames?: Iterable<string>;
   reservedStringValues?: Iterable<string>;
   reservedCommentTexts?: Iterable<string>;
+  preferredDomainId?: string;
   existingIdentifiers?: ReadonlyMap<string, string>;
   existingStrings?: ReadonlyMap<string, string>;
   existingComments?: ReadonlyMap<string, string>;
@@ -258,7 +259,7 @@ export async function transformCoherentCoverStory(
   if (!dialect || !parser || !originalTree) throw new Error('Cannot build a cover story from a syntax-error tree');
 
   const shape = inferStructuralShape(originalTree.rootNode);
-  const domain = chooseDomain(shape);
+  const domain = chooseDomain(shape, options.preferredDomainId);
   const candidates = collectNameCandidates(originalTree.rootNode);
   const identifierMappings = allocateIdentifierMappings(candidates, domain, source, options);
   const identifierMap = new Map(identifierMappings.map((mapping) => [mapping.original, mapping.synthetic]));
@@ -420,7 +421,9 @@ export function inferStructuralShape(root: Parser.SyntaxNode): StructuralShape {
   return shape;
 }
 
-function chooseDomain(shape: StructuralShape): CoverStoryDomain {
+function chooseDomain(shape: StructuralShape, preferredDomainId?: string): CoverStoryDomain {
+  const preferred = DOMAINS.find((candidate) => candidate.id === preferredDomainId);
+  if (preferred) return preferred;
   if (shape.classes > 0 || shape.methods > 0) return DOMAINS[2];
   if (shape.enumLiteralArity >= 4 || shape.branches >= 3) return DOMAINS[0];
   if (shape.numericLiterals >= 5 && shape.booleanLiterals > 0) return DOMAINS[3];
@@ -696,13 +699,24 @@ function capitalize(value: string): string {
 
 function buildCommentTermMap(domain: CoverStoryDomain, candidates: NameCandidate[]): Map<string, string> {
   const map = new Map<string, string>();
-  const firstType = candidates.find((candidate) => candidate.category === 'type')?.original;
+  const firstType = candidates.find((candidate) => candidate.category === 'type' || candidate.category === 'class')?.original;
   const firstFunction = candidates.find((candidate) => candidate.category === 'function')?.original;
-  const firstProperty = candidates.find((candidate) => candidate.category === 'property')?.original;
-  if (firstType) map.set(domain.noun, firstType);
-  if (firstFunction) map.set(domain.action, firstFunction);
-  if (firstProperty) map.set(domain.statusNoun, firstProperty);
-  if (firstType) map.set(domain.container, firstType);
+  const firstProperty = candidates.find((candidate) => candidate.category === 'property' || candidate.category === 'variable')?.original;
+  if (firstType) {
+    map.set(domain.noun, firstType);
+    map.set(domain.plural, firstType);
+    map.set(domain.container, firstType);
+  }
+  if (firstFunction) {
+    map.set(domain.action, firstFunction);
+    map.set(`${domain.action}ing`, firstFunction);
+    map.set(`${domain.action}ed`, firstFunction);
+    map.set(`${domain.action}s`, firstFunction);
+  }
+  if (firstProperty) {
+    map.set(domain.statusNoun, firstProperty);
+    map.set(`${domain.statusNoun}s`, firstProperty);
+  }
   return map;
 }
 
