@@ -1,5 +1,6 @@
 import { obfuscateCode } from './obfuscateCode.js';
 import { obfuscateKnownNames } from './obfuscateKnownNames.js';
+import { dirname } from 'node:path';
 import type { RenameMap } from './renameMap.js';
 import type { AuditEvent } from '../audit/auditTypes.js';
 import type { CoherentCoverStorySession } from '../session.js';
@@ -36,6 +37,7 @@ export interface TransformStats {
 
 const EDIT_TOOL_NAMES = new Set(['Edit']);
 const WRITE_TOOL_NAMES = new Set(['Write']);
+const PATH_INPUT_FIELDS = new Set(['command', 'cwd', 'directory', 'notebook_path', 'path']);
 // Bash output (grep/cat/ls/arbitrary command output) is often fragmentary,
 // non-code text that a tree-sitter parse would just reject wholesale —
 // these get a plain known-names-only substitution instead, see
@@ -169,7 +171,16 @@ function aliasCoherentPaths(messages: unknown[], session: CoherentCoverStorySess
       if (!isRecord(block)) continue;
       if (block.type === 'tool_use' && isRecord(block.input)) {
         if (typeof block.input.file_path === 'string' && block.input.file_path.length > 0) {
+          const originalPath = block.input.file_path;
+          session.aliasDirectory(dirname(originalPath));
           block.input.file_path = session.aliasPath(block.input.file_path);
+        }
+        for (const field of PATH_INPUT_FIELDS) {
+          if (typeof block.input[field] === 'string') {
+            const value = block.input[field] as string;
+            if (field === 'cwd' || field === 'directory') session.aliasDirectory(value);
+            block.input[field] = session.aliasPathsInText(value);
+          }
         }
       }
       replaceAliasedPathsInTextBlocks(block, session);

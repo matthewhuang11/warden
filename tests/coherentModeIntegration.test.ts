@@ -106,6 +106,36 @@ describe('coherent mode integration', () => {
     );
   });
 
+  it('aliases known paths inside Bash and directory-bearing tool inputs', async () => {
+    const originalPath = '/workspace/healthcare/prior-authorization.ts';
+    const session = new CoherentCoverStorySession();
+    const body = {
+      messages: [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'tool_use', id: 'read', name: 'Read', input: { file_path: originalPath } },
+            {
+              type: 'tool_use',
+              id: 'bash',
+              name: 'Bash',
+              input: { command: `grep -n policy ${originalPath}`, cwd: '/workspace/healthcare' },
+            },
+          ],
+        },
+      ],
+    };
+    const result = await transformRequestBody(body, new RenameMap(), {
+      mode: 'coherent',
+      coherentSession: session,
+    });
+    const inputs = (result.body as { messages: Array<{ content: Array<{ input: Record<string, unknown> }> }> }).messages[0]
+      .content.map((block) => block.input);
+    expect(inputs[0].file_path).toBe('source.ts');
+    expect(inputs[1].command).toBe('grep -n policy source.ts');
+    expect(inputs[1].cwd).toBe('workspace');
+  });
+
   it('reserves synthetic names across different files in one session', async () => {
     const session = new CoherentCoverStorySession();
     const first = await session.transform('src/first.ts', 'export function first(value: number): number { return value + 1; }');

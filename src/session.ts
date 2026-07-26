@@ -73,6 +73,16 @@ export class CoherentCoverStorySession {
    * repeated Read/Edit/Write call keeps the same path in the model context.
    */
   aliasPath(original: string): string {
+    const extension = original.match(/\.[A-Za-z0-9]+$/)?.[0] ?? '';
+    return this.addPathAlias(original, `source${extension}`);
+  }
+
+  aliasDirectory(original: string): string {
+    if (original === '.' || original === '/' || original.length === 0) return original;
+    return this.addPathAlias(original, 'workspace');
+  }
+
+  private addPathAlias(original: string, firstAlias: string): string {
     this.purgeExpired();
     const existing = this.pathAliases.find((entry) => entry.original === original);
     if (existing) {
@@ -80,13 +90,14 @@ export class CoherentCoverStorySession {
       return existing.alias;
     }
 
-    const extension = original.match(/\.[A-Za-z0-9]+$/)?.[0] ?? '';
     let counter = 1;
-    let alias = `source${extension}`;
+    let alias = firstAlias;
     const aliases = new Set(this.pathAliases.map((entry) => entry.alias));
     while (aliases.has(alias)) {
       counter += 1;
-      alias = `source_${counter}${extension}`;
+      const extension = firstAlias.match(/\.[A-Za-z0-9]+$/)?.[0] ?? '';
+      const stem = extension ? firstAlias.slice(0, -extension.length) : firstAlias;
+      alias = `${stem}_${counter}${extension}`;
     }
 
     this.pathAliases.push({ original, alias, lastUsedAt: Date.now() });
@@ -113,7 +124,7 @@ export class CoherentCoverStorySession {
       });
     let output = text;
     for (const [alias, original] of aliases) {
-      output = output.replace(new RegExp(escapeRegExp(alias), 'g'), original);
+      output = output.replace(new RegExp(escapeRegExp(alias), 'g'), () => original);
     }
     return output;
   }
@@ -129,7 +140,7 @@ export class CoherentCoverStorySession {
       });
     let output = text;
     for (const [original, alias] of paths) {
-      output = output.replace(new RegExp(escapeRegExp(original), 'g'), alias);
+      output = output.replace(new RegExp(escapeRegExp(original), 'g'), () => alias);
     }
     return output;
   }
