@@ -23,6 +23,7 @@ const originalUpstreamHeadersTimeoutMs = config.upstreamHeadersTimeoutMs;
 const originalMaxRequestBodyBytes = config.maxRequestBodyBytes;
 const originalMaxBufferedResponseBytes = config.maxBufferedResponseBytes;
 const originalMaxSseResponseBytes = config.maxSseResponseBytes;
+const originalCoverStoryMode = config.coverStoryMode;
 
 const openServers: Server[] = [];
 
@@ -33,6 +34,7 @@ afterEach(async () => {
   config.maxRequestBodyBytes = originalMaxRequestBodyBytes;
   config.maxBufferedResponseBytes = originalMaxBufferedResponseBytes;
   config.maxSseResponseBytes = originalMaxSseResponseBytes;
+  config.coverStoryMode = originalCoverStoryMode;
   await Promise.all(openServers.splice(0).map(close));
 });
 
@@ -117,6 +119,28 @@ describe('malformed and unexpected request bodies', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
+  });
+
+  it('fails closed instead of forwarding raw content when coherent serialization fails', async () => {
+    config.coverStoryMode = 'coherent';
+    let upstreamCalled = false;
+    const { proxyUrl } = await startProxyWithUpstream((_req, res) => {
+      upstreamCalled = true;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    });
+
+    const depth = 100_000;
+    const nested = '['.repeat(depth) + '1' + ']'.repeat(depth);
+    const res = await fetch(`${proxyUrl}/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: `{"messages": ${nested}}`,
+    });
+
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: 'coherent_obfuscation_failed' });
+    expect(upstreamCalled).toBe(false);
   });
 
   it('handles non-UTF8 bytes in the request body without crashing', async () => {

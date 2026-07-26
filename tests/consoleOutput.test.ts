@@ -39,6 +39,23 @@ describe('exchange markers', () => {
       '[Warden exchange 42 response] returned; status=200 durationMs=125',
     );
   });
+
+  it('shows coherent fallback counts when a block needed the legacy fallback', () => {
+    const stats = {
+      blocksScanned: 1,
+      blocksRenamed: 1,
+      totalIdentifiersRenamed: 1,
+      commentsRedacted: 0,
+      stringsRedacted: 0,
+      derivedConstantsRedacted: 0,
+      secretsRedacted: 0,
+      coherentFallbacks: 2,
+      auditEvents: [],
+      blocks: [],
+    };
+
+    expect(formatExchangeRequestMarker(7, stats)).toContain('coherentFallbacks=2');
+  });
 });
 
 describe('TerminalStatsPanel', () => {

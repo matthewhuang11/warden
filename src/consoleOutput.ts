@@ -62,7 +62,8 @@ export function printObfuscationSummary(stats: TransformStats): void {
 }
 
 export function formatExchangeRequestMarker(exchangeId: number, stats: TransformStats): string {
-  return `[Warden exchange ${exchangeId} request] intercepted; identifiers=${stats.totalIdentifiersRenamed} comments=${stats.commentsRedacted} strings=${stats.stringsRedacted} derived=${stats.derivedConstantsRedacted} secrets=${stats.secretsRedacted}`;
+  const fallback = stats.coherentFallbacks ? ` coherentFallbacks=${stats.coherentFallbacks}` : '';
+  return `[Warden exchange ${exchangeId} request] intercepted; identifiers=${stats.totalIdentifiersRenamed} comments=${stats.commentsRedacted} strings=${stats.stringsRedacted} derived=${stats.derivedConstantsRedacted} secrets=${stats.secretsRedacted}${fallback}`;
 }
 
 export function formatExchangeResponseMarker(

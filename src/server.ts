@@ -215,6 +215,7 @@ async function captureStealthRawResponse(rawText: string): Promise<void> {
 interface PreparedBody {
   body: string | Buffer;
   stats: TransformStats;
+  failed?: boolean;
 }
 
 function emptyTransformStats(): TransformStats {
@@ -237,7 +238,7 @@ async function prepareObfuscatedBody(raw: Buffer, path: string): Promise<Prepare
     parsed = JSON.parse(raw.toString('utf8'));
   } catch (err) {
     logger.warn('obfuscate.body_not_json', { path, errorType: errorType(err) });
-    return { body: raw, stats: emptyTransformStats() };
+    return { body: raw, stats: emptyTransformStats(), failed: config.coverStoryMode === 'coherent' };
   }
 
   // transformRequestBody is defensive about shape, but the body is
@@ -257,7 +258,7 @@ async function prepareObfuscatedBody(raw: Buffer, path: string): Promise<Prepare
     return { body: JSON.stringify(transformed), stats };
   } catch (err) {
     logger.error('obfuscate.transform_failed', { path, errorType: errorType(err) });
-    return { body: raw, stats: emptyTransformStats() };
+    return { body: raw, stats: emptyTransformStats(), failed: config.coverStoryMode === 'coherent' };
   }
 }
 
@@ -326,6 +327,13 @@ async function handleRequest(req: IncomingMessage, res: import('node:http').Serv
       const prepared = await prepareObfuscatedBody(raw, logPath);
       body = prepared.body;
       printExchangeRequestMarker(exchangeId!, prepared.stats);
+      if (prepared.failed) {
+        logger.error('obfuscate.coherent_failed_closed', { path: logPath });
+        res.writeHead(502, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'coherent_obfuscation_failed' }));
+        markResponse(502);
+        return;
+      }
     } else {
       body = raw;
     }
