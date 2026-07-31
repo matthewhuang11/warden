@@ -1,292 +1,240 @@
 # Warden
 
-A local HTTP proxy that sits between Claude Code (or any Anthropic-API
-client) and `api.anthropic.com`. It obfuscates locally-declared JS/TS
-identifiers before a request leaves your machine, forwards the sanitized
-request to the real API, and rehydrates the response back to real names
-before it reaches you — so the model still sees everything it needs to
-help, but your own function, variable, class, interface, type-alias, locally declared contract-property names, and contract enum values never leave your
-machine in the clear.
+Warden is a local TypeScript HTTP proxy experiment for Claude Code and other
+Anthropic Messages API clients. It sits between a client and
+`api.anthropic.com`, tries to obfuscate selected local JS/TS identifiers,
+comments, and some string literals before requests leave the machine, then
+rehydrates model responses back to the original text on the way home.
 
-## Quickstart (~2 minutes)
+## Project status
 
-No install, no clone — this ships as a prebuilt CLI:
+This project is not fully functional or production-ready. I am pivoting away
+from active development for now and open-sourcing the repository in its current
+work-in-progress state.
 
-```
-npx warden-proxy
-```
+The code may still be useful as a prototype or reference implementation, but
+do not rely on it as a complete privacy or security boundary. The obfuscation
+is heuristic, the supported request shapes are narrow, and some behavior
+depends on whether the client actually honors `ANTHROPIC_BASE_URL`.
 
-Leave that running in its own terminal, then in a second terminal, let it
-write the config for you:
+## What works today
 
-```
-npx warden-proxy setup
-```
+- Starts a local proxy on `127.0.0.1:8787` by default.
+- Forwards traffic to `https://api.anthropic.com` unless configured otherwise.
+- Inspects only `POST /v1/messages` request bodies.
+- Rewrites code found in Claude Code-style `Edit` and `Write` tool inputs.
+- Rewrites code-like `tool_result` content when it can be parsed as JS/TS.
+- Reuses known rename mappings in `Bash` tool results with word-boundary text
+  replacement.
+- Rehydrates JSON and SSE responses using the in-memory session rename map.
+- Writes an encrypted local audit log under `.warden/audit.log.enc`.
+- Provides local `stats` and HTML `report` commands.
+- Includes an optional aggregate-only dashboard sync path.
+- Includes tests, fuzzing scripts, and prototype stealth/coherent-cover-story
+  harnesses.
 
-This offers to add `ANTHROPIC_BASE_URL` to your Claude Code settings
-(`~/.claude/settings.json`) and shows you exactly what it's about to write
-before asking to confirm — it won't touch the file without a yes. If you'd
-rather do it yourself (or `setup` declines because the file doesn't parse),
-it prints the same snippet for you to add by hand, plus a shell-export
-alternative.
+## What is incomplete
 
-**`ANTHROPIC_BASE_URL` is read once when Claude Code starts, not
-per-request** — restart Claude Code (fully quit and reopen, or reload the
-VS Code window) after running `setup`, or after exporting it manually, for
-it to take effect.
+- Warden is best-effort, not a guarantee that sensitive names or prose never
+  reach an upstream model.
+- Only JS/TS-oriented code paths are implemented.
+- Plain chat text and system prompts are intentionally not rewritten.
+- File and directory names are not virtualized in default `pool` mode.
+- `coherent` cover-story mode exists, but should be treated as experimental.
+- Bash output can only rewrite names that were already discovered earlier in
+  the same proxy session.
+- Code blocks that fail tree-sitter parsing are forwarded unchanged.
+- Files over the internal line-count limit are forwarded unchanged.
+- Secret detection is not implemented; `secrets` counters are reserved and
+  currently stay at `0`.
+- Claude Code OAuth/subscription routing through `ANTHROPIC_BASE_URL` has not
+  been proven for every setup.
+- The dashboard is optional and early; it is not required for local proxy use.
 
-**Confirm it's working:** the terminal running `warden-proxy` should print
-an updating line like `Warden stats | identifiers: 3 | comments: 1 | strings: 1 | secrets: 0`
-whenever Claude Code sends it something to obfuscate.
+## Repository layout
 
-Local reports are available without any network call:
+- `src/` - proxy, CLI, obfuscation, rehydration, audit log, and sync code.
+- `tests/` - unit, resilience, fuzz, and prototype behavior tests.
+- `examples/` - synthetic business-code fixtures for evaluation.
+- `dashboard/` - separate Next.js dashboard for aggregate sync data.
+- `legacy-extension/` - older Chrome-extension approach kept for reference.
+- `scripts/` - package verification, fuzzing, and evaluation harnesses.
+
+## Development setup
+
+Requirements:
+
+- Node.js 20+
+- npm
+- macOS if you want the default encrypted audit log key storage, because it
+  uses macOS Keychain.
+
+From a clone:
 
 ```bash
-warden stats
-warden report
+npm install
+npm run build
+npm start
 ```
 
-The report reads the encrypted local audit log and opens a static HTML file.
-The encryption key is held in macOS Keychain; the local log contains hashes,
-categories, and timestamps, never source text.
+There is also a convenience setup script:
 
-To go back to talking to Anthropic directly, `unset ANTHROPIC_BASE_URL`
-(and remove the `env` block from settings.json if `setup` added it there).
+```bash
+npm run setup
+```
 
-> Working from a clone of this repo instead? `npm run setup` (runs
-> `setup.sh`: `npm install` + `npm run build`, then prints the same
-> instructions) followed by `npm start`. Or run each step yourself:
-> `npm install && npm run build && npm start`, or `npm run dev` for
-> auto-restart on change during development.
+For development with auto-restart:
 
-## Configuration (environment variables)
+```bash
+npm run dev
+```
+
+From a clone, run CLI subcommands through the built entrypoint:
+
+```bash
+node dist/cli.js --help
+node dist/cli.js stats
+```
+
+If the package is published, installed, or linked locally, the package metadata
+also exposes `warden-proxy` and `warden` as command names.
+
+## Connecting Claude Code
+
+Run the setup helper after building:
+
+```bash
+node dist/cli.js setup
+```
+
+It offers to write this value into `~/.claude/settings.json`:
+
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://localhost:8787"
+  }
+}
+```
+
+`ANTHROPIC_BASE_URL` is read when Claude Code starts, so restart Claude Code
+after changing it. To bypass Warden again, remove that setting or unset the
+environment variable.
+
+## CLI
+
+```bash
+warden-proxy              # start the proxy
+warden-proxy setup        # configure Claude Code settings, with confirmation
+warden-proxy stats        # print local protection totals
+warden-proxy report       # write and open a local HTML report
+warden-proxy connect      # enable optional dashboard sync
+```
+
+From a clone, use `node dist/cli.js <command>` instead. `warden` is an alias
+for the same CLI when the package is installed or linked.
+
+## Configuration
 
 | Variable | Default | Purpose |
-|---|---|---|
-| `WARDEN_PORT` | `8787` | Local port the proxy listens on |
-| `WARDEN_UPSTREAM_BASE_URL` | `https://api.anthropic.com` | Where requests are forwarded |
-| `WARDEN_AUTH_TOKEN` | unset | Optional shared token required in the `x-warden-token` header; requests without it receive a `401` |
-| `WARDEN_OBFUSCATION_DISABLED` | unset | Set to `1` to run as a pure passthrough (no obfuscation) |
-| `WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS` | `30000` | How long to wait for the upstream to start responding before failing the request with a `504` |
-| `WARDEN_CLIENT_HEADERS_TIMEOUT_MS` | `15000` | Maximum time allowed to receive inbound request headers |
-| `WARDEN_REQUEST_TIMEOUT_MS` | `120000` | Maximum time allowed to receive a complete inbound request |
-| `WARDEN_MAX_REQUEST_BODY_BYTES` | `10485760` | Maximum request body size accepted by the proxy; larger requests receive a `413` before forwarding |
-| `WARDEN_MAX_BUFFERED_RESPONSE_BYTES` | `10485760` | Maximum JSON response size buffered for rehydration; larger responses receive a `502` |
-| `WARDEN_MAX_SSE_RESPONSE_BYTES` | `52428800` | Maximum total rehydrated SSE response size; larger streams are terminated |
-| `WARDEN_MAX_SESSION_MAPPINGS` | `10000` | Maximum in-memory identifier/token mappings retained by one running proxy |
-| `WARDEN_SESSION_MAPPING_TTL_MS` | `1800000` | Idle lifetime of an in-memory mapping before it expires |
-| `WARDEN_VERBOSE` | unset | Set to `1` for detailed JSON logs (see **Watching it work**) |
-| `WARDEN_REDACT_COMMENTS` | enabled | Set to `0` to stop redacting comments (see **What gets obfuscated**) |
-| `WARDEN_REDACT_STRINGS` | enabled | Set to `0` to stop redacting business string literals and contract enum values (see **What gets obfuscated**) |
-| `WARDEN_CONNECT_CONFIG` | `~/.warden/connect.json` | Local opt-in team-sync configuration path |
-| `WARDEN_DASHBOARD_URL` | unset | Dashboard sync endpoint used by `warden connect` when `--url` is omitted |
+|---|---:|---|
+| `WARDEN_PORT` | `8787` | Local proxy port |
+| `WARDEN_UPSTREAM_BASE_URL` | `https://api.anthropic.com` | Upstream API origin |
+| `WARDEN_AUTH_TOKEN` | unset | Optional token required in `x-warden-token` |
+| `WARDEN_OBFUSCATION_DISABLED` | unset | Set to `1` for passthrough mode |
+| `WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS` | `30000` | Time limit for upstream response headers |
+| `WARDEN_CLIENT_HEADERS_TIMEOUT_MS` | `15000` | Time limit for inbound request headers |
+| `WARDEN_REQUEST_TIMEOUT_MS` | `120000` | Time limit for inbound request body receipt |
+| `WARDEN_MAX_REQUEST_BODY_BYTES` | `10485760` | Max inbound request body size |
+| `WARDEN_MAX_BUFFERED_RESPONSE_BYTES` | `10485760` | Max buffered JSON response size |
+| `WARDEN_MAX_SSE_RESPONSE_BYTES` | `52428800` | Max total rehydrated SSE response size |
+| `WARDEN_MAX_SESSION_MAPPINGS` | `10000` | Max in-memory rename mappings |
+| `WARDEN_SESSION_MAPPING_TTL_MS` | `1800000` | Idle lifetime for rename mappings |
+| `WARDEN_REDACT_COMMENTS` | enabled | Set to `0` to keep comments |
+| `WARDEN_REDACT_STRINGS` | enabled | Set to `0` to keep qualifying strings |
+| `WARDEN_COVER_STORY_MODE` | `pool` | `pool` or experimental `coherent` mode |
+| `WARDEN_VERBOSE` | unset | Set to `1` for structured JSON logs |
+| `WARDEN_CONNECT_CONFIG` | `~/.warden/connect.json` | Optional dashboard sync config path |
+| `WARDEN_DASHBOARD_URL` | unset | Default sync URL for `warden connect` |
 
-Your real auth keeps flowing through untouched — the proxy forwards
-whatever `Authorization`/`x-api-key` header it receives without
-inspecting it; only the request/response bodies are rewritten. If you
-normally log into Claude Code via OAuth (subscription login, no
-`ANTHROPIC_API_KEY` set) rather than an API key, that's confirmed to work
-for auth headers in general, but whether `ANTHROPIC_BASE_URL` itself
-applies to OAuth-authenticated traffic isn't documented — the first real
-session is the way to confirm it for your setup. If it doesn't take
-effect, try also setting `ANTHROPIC_AUTH_TOKEN`.
+Additional harness-only environment variables exist under the
+`WARDEN_STEALTH_*`, `WARDEN_LOCAL_MODEL_*`, and
+`WARDEN_COVER_STORY_COMMENT_MODEL*` prefixes. See `examples/README.md` and
+the scripts under `scripts/` for those workflows.
 
-## What gets obfuscated
+## Obfuscation model
 
-Only `POST /v1/messages` requests are inspected. Within those:
+Warden rewrites request bodies only when all of these are true:
 
-- **`Edit`/`Write` tool_use inputs** — code the assistant is about to
-  write (`old_string`/`new_string`/`content`).
-- **`tool_result` content** — file/command output sent back to the model
-  as context (e.g. `Read`/`Bash` results).
+- The request is `POST /v1/messages`.
+- Obfuscation has not been disabled.
+- The relevant message content is in a recognized tool-use or tool-result
+  shape.
+- The extracted text parses as JS/TS, except for known-name substitutions in
+  Bash results.
 
-Plain chat text and system-prompt content are left alone; Warden never injects
-behavioral instructions into the system prompt. If a code block
-doesn't parse cleanly as JS/TS (e.g. `Edit`'s `old_string`/`new_string` is
-often a small fragment rather than a complete, syntactically valid
-program), it's forwarded untouched rather than risk corrupting it — watch
-the logs for `obfuscate.parse_failed` to see how often this happens in
-practice.
+The main implemented transformations are:
 
-Only the *names* of locally-declared functions, variables, classes, interfaces, and type aliases
-are changed — imported/built-in/library identifiers are never touched,
-and the code's structure/logic is untouched. Renaming is applied via
-exact byte-offset splicing on the original source, so formatting is
-preserved exactly.
+- Locally declared functions, variables, classes, interfaces, and type aliases
+  are renamed.
+- Imported, built-in, and library identifiers are intended to be left alone.
+- Comments are replaced with generic placeholder comments when enabled.
+- Long, multi-word string literals in non-load-bearing positions may be
+  replaced with placeholders when enabled.
+- Some top-level constants derived exactly from a redacted string's `.length`
+  may be folded to the computed number.
 
-`tool_result` content is handled differently depending on which tool
-produced it:
+Response rehydration is based on the in-memory rename map for the current
+running proxy process. If mappings expire or are evicted, old synthetic names
+may stay synthetic in later responses.
 
-- **`Read`/`Edit`/`Write` results** (and anything else not listed below)
-  are parsed as a full JS/TS file via tree-sitter — this is what
-  discovers *new* renameable names.
-- **`Bash` results** (grep/cat/ls/arbitrary command output) are not
-  parsed at all — they're rarely a complete, valid program, so a
-  tree-sitter parse would just fail and leave everything untouched
-  anyway. Instead, a plain word-boundary substitution reuses whatever
-  names the session has *already* discovered from an earlier `Read`/
-  `Edit`/`Write` (e.g. renaming `data` won't touch `database` or
-  `dataset`). See **Known limitations** below.
+## Local reports and sync
 
-Beyond identifier renaming, two more things get scrubbed from any block
-that parses as JS/TS (both on by default; see the env vars above to turn
-either off):
-
-- **Comments** (`//` and `/* */`) are always fully replaced — they're pure
-  documentation for humans, so unlike identifiers/strings there's no
-  selective logic here. Rather than one fixed literal every time (an
-  obvious tell that something was removed), the placeholder is picked from
-  a small pool of generic, plausible-sounding phrases (e.g. `// see
-  implementation below`, `// internal logic, not user-facing`), varied by
-  the original comment's length/content/position so it isn't a fixed
-  fingerprint — but never derived from the comment's actual words, so
-  nothing about the real content leaks through even indirectly. The
-  chosen phrase's length roughly scales with the original's, so a short
-  comment doesn't visually balloon into a long one or vice versa. A
-  multi-line block comment's placeholder preserves the original line
-  count (padding with blank lines) so it round-trips through the
-  line-number-prefix handling above; the comment's own text is discarded,
-  not restored.
-- **String literals** are handled far more conservatively, since blanket
-  redaction would break code the model needs to reason about correctly.
-  A string is only redacted if it's **15+ characters**, contains
-  **multiple words** (separated by spaces or underscores — a proxy for
-  "reads like business prose" rather than a technical token), and is
-  **not** used as an import/export path, an object key, a JSX attribute
-  value, or a comparison/switch-case value (contexts where the exact
-  value is load-bearing for control flow, not just human-readable
-  content). Redacted strings become a unique placeholder (`"str_1"`,
-  `"str_2"`, ...) and — unlike identifiers — don't need a *consistent*
-  mapping, but they do still round-trip byte-for-byte back to the exact
-  original if the model ever echoes the placeholder back, using the same
-  rename map and reversal mechanism as identifiers. Template literals
-  (`` `...` ``) are left alone entirely — see **Known limitations**.
-- **Derived string-length constants** are folded when a top-level `const`
-  initializer is exactly a qualifying sensitive string's `.length`, either
-  directly or through another top-level `const`. The upstream model sees
-  only the computed number, not the business phrase or the suspicious
-  derivation, while response text and tool edits still reverse to the exact
-  original expression. Warden skips this transformation for escaped
-  strings, nested scopes, or numeric values already present elsewhere in
-  the source, where an exact reverse substitution would be ambiguous.
-
-## Known limitations
-
-### Not protected (real names can reach the upstream API unobfuscated)
-
-- **File and directory names are not virtualized.** Paths must remain exact
-  for Claude Code's local tools to work reliably, so use neutral local paths
-  when a filename itself carries sensitive business meaning.
-- **A name's *first* appearance in `Bash` output isn't caught.** `Bash`
-  `tool_result` content skips AST parsing (see above), so it can never be
-  the first place a sensitive name is discovered — only names already in
-  the session's rename map from an earlier `Read`/`Edit`/`Write` get
-  substituted. If a real identifier's first appearance in a conversation
-  is inside `grep`/`cat`/`ls` output rather than a `Read` of the file
-  itself, that first occurrence goes out as-is.
-- **Files over 5,000 lines skip obfuscation entirely**, not partially.
-  tree-sitter parsing runs synchronously and blocks Node's single
-  event-loop thread for however long it takes to parse — measured
-  against this codebase, roughly 660ms at 5,000 lines, 1.3s at 10,000,
-  and 15s at 40,000 (worse than linear, not a fixed per-line cost),
-  during which every other in-flight request would freeze. Anything over
-  the line-count ceiling is forwarded completely untouched instead
-  (logged as `obfuscate.skipped_too_large`) — there's no "rename as much
-  as fits."
-- **A pathologically deep JSON request body** (thousands of levels of
-  array/object nesting — not something a normal file or command output
-  would produce) can defeat `JSON.stringify` after obfuscation
-  (`RangeError: Maximum call stack size exceeded` — `JSON.parse` tolerates
-  this depth, `JSON.stringify` doesn't). That one request degrades to
-  going out unobfuscated instead of failing (logged as
-  `obfuscate.transform_failed`).
-- **A long, `snake_case`-y string in a plain (non-comparison, non-key)
-  position can be redacted even when it's actually a technical value, not
-  business prose** — e.g. `const path = "/api/v2/high_risk_zone_lookup";`
-  gets redacted, because nothing about that position is structurally
-  different from a real business-description string, and its underscores
-  make it read as "multi-word" to the heuristic. The reverse is also true
-  in principle: a hyphenated or camelCase business string
-  (`"high-risk-zone-multiplier"`) won't trip the multi-word check at all
-  and goes out untouched. This heuristic is deliberately simple (length +
-  word-separator check only) per spec — it isn't, and doesn't try to be, a
-  true "does this look like business prose" classifier.
-- **Requests larger than `WARDEN_MAX_REQUEST_BODY_BYTES` (10 MiB by default)
-  are rejected with a `413` before obfuscation or forwarding.** This bounds
-  memory use when the proxy buffers a request body for inspection.
-- **The session rename map is bounded by `WARDEN_MAX_SESSION_MAPPINGS` (10,000
-  by default).** When the limit is reached, the oldest mapping is evicted;
-  an old token may then remain synthetic in a rehydrated response rather than
-  allowing unbounded memory growth.
-- **Mappings also expire after `WARDEN_SESSION_MAPPING_TTL_MS` of inactivity
-  (30 minutes by default).** Using a mapping refreshes its idle lifetime;
-  expired tokens remain synthetic rather than restoring stale sensitive data.
-- **Template literals (`` `...` ``) are never touched**, even ones that
-  are 100% static, long, multi-word business text. They commonly mix
-  static text with interpolated expressions (`` `Order ${id} exceeds the
-  ${threshold} limit` ``), and safely redacting only the static portions
-  felt like a meaningfully bigger, riskier feature than what was asked for
-  here — left out deliberately rather than shipped half-considered.
-
-### Operational behavior (not a privacy gap, just worth knowing)
-
-- **A hung/unreachable upstream fails after `WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS`
-  (default 30s), not immediately.** This only bounds the wait for the
-  *first* response byte — once headers arrive, a long legitimate
-  streaming completion is never cut off by it. A connection that drops
-  mid-stream (rather than never responding at all) is handled separately
-  and typically surfaces much faster, as a stream error to the client.
-
-## Watching it work
-
-By default, Warden prints a short human-readable line per request that
-actually renamed something (e.g. `🔒 3 identifiers protected in
-src/foo.ts`), plus a one-line startup banner — nothing else. That's
-intentional: it's meant to feel like a normal CLI tool, not a firehose of
-logs.
-
-For debugging, set `WARDEN_VERBOSE=1` to also get structured JSON logs to
-stdout, one line per event:
-
-- `obfuscate.request_transformed` — a request was scanned; `blocksScanned`/`blocksRenamed`/`totalIdentifiersRenamed`/`blocks` (per-block label + rename count)
-- `obfuscate.applied` — one code block was successfully renamed, with the grammar dialect used, plus `commentsRedacted`/`stringsRedacted` counts
-- `obfuscate.parse_failed` — a code block didn't parse in either grammar and was left untouched
-- `obfuscate.skipped_too_large` — a code block exceeded the line-count ceiling and was left untouched without attempting to parse it
-- `obfuscate.transform_failed` — obfuscating/re-serializing the request body threw unexpectedly; the original request was forwarded untouched instead
-- `request.upstream_timeout` — the upstream didn't respond within `WARDEN_UPSTREAM_HEADERS_TIMEOUT_MS`; the client got a `504`
-- `request.forwarded` — every proxied request, with status and duration
-
-On startup, Warden also checks that its port is free and that the
-upstream is reachable — a port already in use prints a clear error and
-exits; an unreachable upstream prints a warning but still starts (so a
-transient network blip doesn't block you from getting the proxy running).
-These two checks always print in plain text, regardless of `WARDEN_VERBOSE`.
-
-## Optional team sync
-
-Team sync is **off by default**. A fresh install makes no dashboard network
-request and only talks to the configured AI provider. Enable it explicitly:
+Audit events are stored locally in an append-only encrypted log:
 
 ```bash
-warden connect <org-token> --url https://dashboard.example.com/api/sync
+node dist/cli.js stats
+node dist/cli.js report
 ```
 
-After connecting, Warden sends only aggregate category counts, pseudonymous
-repository/session labels, timestamps, and one-way SHA-256 hashes. It never
-sends source code, comments, real identifier names, file contents, or the
-in-memory `RenameMap`. The dashboard rejects unknown fields and values that do
-not match this aggregate-only contract.
+`report` writes `warden-report.html` in the current directory by default and
+attempts to open it in the system browser.
 
-## Development
+Team sync is opt-in:
 
-```
-npm test        # run unit tests once
-npm run test:watch
-npx tsc -p tsconfig.json --noEmit   # typecheck
+```bash
+node dist/cli.js connect <org-token> --url https://dashboard.example.com/api/sync
 ```
 
----
+After that, successfully recorded audit events are posted to the configured
+endpoint as aggregate counts, pseudonymous repository/session labels,
+timestamps, and one-way hashes. Source code, comments, real identifiers, file
+contents, and rename maps are not included in the sync payload.
 
-`legacy-extension/` is an earlier Chrome-extension-based approach (regex
-PII redaction on chatgpt.com/claude.ai), kept for reference only — this
-proxy is a full architectural pivot, not built on top of it.
+The dashboard lives in `dashboard/` and is developed separately:
+
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+
+See `dashboard/README.md` for its environment variables and storage notes.
+
+## Tests and verification
+
+```bash
+npm test
+npm run fuzz
+npm run fuzz:batch
+npm run verify
+npm run verify:package
+```
+
+Some evaluation harnesses may require explicit API keys, budget caps, or local
+model endpoints. They are intended for supervised experimentation, not normal
+use.
+
+## License
+
+MIT. See `LICENSE`.
