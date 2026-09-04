@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "description": "Local proxy for Claude Code / Cursor that obfuscates local identifiers before requests leave the machine and rehydrates them on the way back.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/matthewhuang11/warden.git"
+  },
   "type": "module",
   "main": "dist/index.js",
   "bin": {
