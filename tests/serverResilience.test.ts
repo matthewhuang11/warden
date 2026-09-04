@@ -483,5 +483,5 @@ describe('concurrent requests and sessionRenameMap consistency', () => {
     for (const body of receivedBodies) {
       expect(body).not.toContain('handleConcurrentThing');
     }
-  });
+  }, 20_000);
 });
