@@ -4,18 +4,26 @@ Warden is a local TypeScript HTTP proxy experiment for Claude Code and other
 Anthropic Messages API clients. It sits between a client and
 `api.anthropic.com`, tries to obfuscate selected local JS/TS identifiers,
 comments, and some string literals before requests leave the machine, then
-rehydrates model responses back to the original text on the way home.
+rehydrates model responses back to the original text on the way home. The
+goal was to let a coding agent still see and act on your code's structure
+without seeing your real names, comments, or literal business logic.
 
 ## Project status
 
-This project is not fully functional or production-ready. I am pivoting away
-from active development for now and open-sourcing the repository in its current
-work-in-progress state.
+This project is not fully functional or production-ready. I'm pivoting away
+from active development and open-sourcing it in its current work-in-progress
+state, in case the approach, the code, or the findings below are useful to
+someone else.
 
-The code may still be useful as a prototype or reference implementation, but
-do not rely on it as a complete privacy or security boundary. The obfuscation
-is heuristic, the supported request shapes are narrow, and some behavior
-depends on whether the client actually honors `ANTHROPIC_BASE_URL`.
+The core proxy, obfuscation, and rehydration pipeline works and is tested.
+What doesn't fully work is the actual goal: reliably hiding from a
+sufficiently attentive downstream model that renaming happened at all. See
+"What we found" below for specifics, evidence, and numbers, not just a
+vibe.
+
+**Do not rely on this as a real privacy or security boundary.** The
+obfuscation is heuristic, the supported request shapes are narrow, and some
+behavior depends on whether the client actually honors `ANTHROPIC_BASE_URL`.
 
 ## What works today
 
@@ -27,20 +35,97 @@ depends on whether the client actually honors `ANTHROPIC_BASE_URL`.
 - Reuses known rename mappings in `Bash` tool results with word-boundary text
   replacement.
 - Rehydrates JSON and SSE responses using the in-memory session rename map.
+- Two cover-story modes: `pool` (generic synthetic names) and `coherent`
+  (one consistent fake business-domain theme per file — e.g. parcel
+  routing, recipe scoring, library circulation — so replacement names read
+  as plausibly related to each other instead of independently generic).
+- Classifies each renamed variable's computational role from its AST
+  initializer (clamp/floor, arithmetic difference, boolean gate,
+  accumulator, direct pass-through) and picks a replacement name that
+  matches that role, so a clamped value doesn't get a name implying a raw
+  unbounded one.
+- Redacts some derived constants (e.g. a fee computed from a redacted
+  string's length) that would otherwise leak business meaning through
+  computation rather than naming.
 - Writes an encrypted local audit log under `.warden/audit.log.enc`.
 - Provides local `stats` and HTML `report` commands.
 - Includes an optional aggregate-only dashboard sync path.
-- Includes tests, fuzzing scripts, and prototype stealth/coherent-cover-story
-  harnesses.
+- Includes a fuzz suite, a realistic tuning/held-out fixture corpus, and a
+  harness that runs real Claude Code CLI sessions against proxied fixtures
+  and judges the transcripts for suspicion of obfuscation.
+
+## What we found (the honest part)
+
+We built an adversarial test loop specifically to answer one question: does
+a real coding agent, given proxied code and a normal review/edit task,
+notice that names have been substituted? A separate judge model scored each
+transcript against a fixed rubric (explicit or implicit suspicion of
+artificial/inconsistent/auto-generated naming), with the exact triggering
+quote logged for every positive.
+
+Across 48 completed local trials (Claude Sonnet, mixed `pool` and
+`coherent` modes, both fintech and healthtech fixtures):
+
+- **~31% of trials showed the agent noticing something was off**, usually
+  by describing identifiers as "generic," "meaningless," "obfuscated," or
+  inconsistent with sibling naming conventions.
+- Moving from `pool` mode to `coherent` mode (a single fake domain theme
+  per file instead of independent generic names) measurably reduced the
+  suspicion rate — roughly 36% down to 25% in our local before/after
+  comparison — but did not eliminate it. Some coherent-mode fixtures were
+  still flagged, including one case where the model correctly noticed the
+  fake domain vocabulary had been applied inconsistently within a single
+  file.
+- Real quotes from flagged trials, so this isn't hand-waved:
+  - *"ignoring the obfuscated variable names, which map to: min history
+    months=6, margin multiplier=2.5, ..."*
+  - *"everything is named with meaningless `eventXxxY` patterns"*
+  - *"the `'insufficient_buffer'` literal ... is a meaningless placeholder
+    name (camelCase, unlike its snake_case siblings)"*
+  - *"the entire implementation uses parcel/logistics vocabulary. This is
+    clearly a synthetic fixture where the domain obfuscation was applied
+    inconsistently"*
+
+The semantic-role-aware naming fix (matching a variable's fake name to its
+actual computational role — clamp, difference, boolean gate, accumulator)
+did land and is covered by regression tests in `tests/variableRole.test.ts`.
+It closed the specific bug that motivated it (a `Math.max(0, x - y)` clamp
+that read as an unbounded raw value), but the broader detection rate above
+shows that wasn't the dominant failure mode. The remaining failures mostly
+look like a model reasoning correctly from structural evidence (naming
+uniformity, convention mismatches across near-identical fields, vocabulary
+drift within one file) rather than any single fixable bug — which suggests
+this general approach has a real ceiling against a capable enough reader,
+not just a to-do list of bugs left to fix.
+
+One planned mitigation from the design docs (a scoped system-prompt
+injection asking the model not to volunteer unprompted naming commentary,
+see `docs/design-history/02-stealth-final-spec.md`) was never implemented.
+It's a plausible cheap partial mitigation for the "unprompted commentary"
+half of the problem that a future contributor could pick up, but it
+wouldn't address the harder case above, where the model was directly asked
+to review the code and its assessment of the naming was relevant to the
+task.
+
+Raw trial data (transcripts, judge verdicts, Warden's own per-exchange
+logs) lived locally under `.warden/stealth-runs/` during development. That
+directory is gitignored and user-local by design, so it isn't part of this
+repository, but the harness that produced it (`scripts/stealth-harness.ts`)
+and the fixture corpus it ran against (`examples/fixtures/`) are included
+if you want to reproduce or extend the experiment.
 
 ## What is incomplete
 
 - Warden is best-effort, not a guarantee that sensitive names or prose never
-  reach an upstream model.
+  reach an upstream model — see "What we found" above for measured rates.
 - Only JS/TS-oriented code paths are implemented.
 - Plain chat text and system prompts are intentionally not rewritten.
 - File and directory names are not virtualized in default `pool` mode.
-- `coherent` cover-story mode exists, but should be treated as experimental.
+- `coherent` cover-story mode exists and measurably helps, but is still
+  detectable in a meaningful fraction of trials — treat it as experimental,
+  not as a solved problem.
+- The scoped system-prompt injection described in the final stealth design
+  doc was never built.
 - Bash output can only rewrite names that were already discovered earlier in
   the same proxy session.
 - Code blocks that fail tree-sitter parsing are forwarded unchanged.
@@ -55,10 +140,18 @@ depends on whether the client actually honors `ANTHROPIC_BASE_URL`.
 
 - `src/` - proxy, CLI, obfuscation, rehydration, audit log, and sync code.
 - `tests/` - unit, resilience, fuzz, and prototype behavior tests.
-- `examples/` - synthetic business-code fixtures for evaluation.
+- `examples/` - synthetic business-code fixtures for evaluation, split into
+  a tuning set and a held-out generalization set.
 - `dashboard/` - separate Next.js dashboard for aggregate sync data.
-- `legacy-extension/` - older Chrome-extension approach kept for reference.
-- `scripts/` - package verification, fuzzing, and evaluation harnesses.
+- `legacy-extension/` - an earlier Chrome-extension approach to the same
+  idea (regex/heuristic PII detection in the browser, no proxy), kept for
+  reference. It has its own toolchain and test suite; see
+  `legacy-extension/README.md`.
+- `docs/design-history/` - the working specs from development, showing what
+  was planned versus what actually shipped, including the finding that
+  motivated the stealth work.
+- `scripts/` - package verification, fuzzing, and evaluation harnesses,
+  including the adversarial stealth test loop.
 
 ## Development setup
 
@@ -176,13 +269,20 @@ Warden rewrites request bodies only when all of these are true:
 The main implemented transformations are:
 
 - Locally declared functions, variables, classes, interfaces, and type aliases
-  are renamed.
+  are renamed, with a replacement chosen to match the variable's actual
+  computational role (clamp, difference, boolean gate, accumulator,
+  pass-through) so the fake name doesn't imply a different kind of value
+  than the real one.
 - Imported, built-in, and library identifiers are intended to be left alone.
 - Comments are replaced with generic placeholder comments when enabled.
 - Long, multi-word string literals in non-load-bearing positions may be
   replaced with placeholders when enabled.
 - Some top-level constants derived exactly from a redacted string's `.length`
-  may be folded to the computed number.
+  may be folded to the computed number, so the derivation itself doesn't
+  leak the original string's content.
+- In `coherent` mode, one fake business-domain theme is chosen per file and
+  every identifier in scope is drawn from that theme, instead of each name
+  being generated independently.
 
 Response rehydration is based on the in-memory rename map for the current
 running proxy process. If mappings expire or are evicted, old synthetic names
@@ -209,7 +309,9 @@ node dist/cli.js connect <org-token> --url https://dashboard.example.com/api/syn
 After that, successfully recorded audit events are posted to the configured
 endpoint as aggregate counts, pseudonymous repository/session labels,
 timestamps, and one-way hashes. Source code, comments, real identifiers, file
-contents, and rename maps are not included in the sync payload.
+contents, and rename maps are not included in the sync payload, and this is
+enforced by a typed schema on the receiving end (`dashboard/lib/sync-schema.ts`)
+with tests asserting it rejects anything resembling plaintext source.
 
 The dashboard lives in `dashboard/` and is developed separately:
 
@@ -233,7 +335,8 @@ npm run verify:package
 
 Some evaluation harnesses may require explicit API keys, budget caps, or local
 model endpoints. They are intended for supervised experimentation, not normal
-use.
+use — see `examples/README.md` for the stealth harness and local-model A/B
+harness usage, budget caps, and output locations.
 
 ## License
 
