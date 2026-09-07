@@ -22,6 +22,7 @@
     "dev": "tsx watch src/index.ts",
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "npm run clean && tsc -p tsconfig.json",
+    "demo": "tsx examples/demo.ts",
     "fuzz": "bash scripts/fuzz.sh",
     "fuzz:batch": "bash scripts/fuzz-batch.sh",
     "stealth:harness": "npm run build && tsx scripts/stealth-harness.ts",

@@ -1,8 +1,25 @@
+# Dependencies and generated builds
 node_modules/
 dist/
+coverage/
+.nyc_output/
+
+# Local Warden state and generated reports
+.warden/
+warden-report.html
+fuzz-failures.log
+
+# Environment and credential files. Keep checked-in examples explicit.
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+
+# OS/editor noise
 *.log
 .DS_Store
-.env
-.env.local
-fuzz-failures.log
-.warden/
+.idea/
+.vscode/

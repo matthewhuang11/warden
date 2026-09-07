@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="320" viewBox="0 0 920 320" role="img" aria-labelledby="title desc">
+  <title id="title">Warden proxy request and response flow</title>
+  <desc id="desc">Claude Code sends requests through Warden on localhost. Warden obfuscates request code before forwarding to the Anthropic API and rehydrates responses before returning them.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#334155" />
+    </marker>
+    <style>
+      .box{fill:#f8fafc;stroke:#334155;stroke-width:2;rx:18;ry:18}.title{font:bold 20px system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;fill:#0f172a}.text{font:15px system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;fill:#334155}.small{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;fill:#475569}.arrow{stroke:#334155;stroke-width:2.5;fill:none;marker-end:url(#arrow)}.accent{fill:#e0f2fe;stroke:#0284c7}.warn{fill:#fef3c7;stroke:#d97706}
+    </style>
+  </defs>
+  <rect width="920" height="320" fill="#ffffff" />
+  <rect x="40" y="78" width="200" height="145" class="box" />
+  <text x="70" y="118" class="title">Claude Code</text>
+  <text x="70" y="150" class="text">Normal Messages API</text>
+  <text x="70" y="174" class="text">client traffic</text>
+  <text x="70" y="202" class="small">ANTHROPIC_BASE_URL</text>
+
+  <rect x="360" y="52" width="220" height="196" class="box accent" />
+  <text x="398" y="96" class="title">Warden</text>
+  <text x="398" y="128" class="text">127.0.0.1:8787</text>
+  <text x="398" y="160" class="text">1. obfuscate request</text>
+  <text x="398" y="184" class="text">2. forward upstream</text>
+  <text x="398" y="208" class="text">3. rehydrate response</text>
+  <text x="398" y="232" class="small">.warden/audit.log.enc</text>
+
+  <rect x="690" y="78" width="190" height="145" class="box" />
+  <text x="725" y="118" class="title">Anthropic API</text>
+  <text x="725" y="150" class="text">Sees synthetic</text>
+  <text x="725" y="174" class="text">identifiers where</text>
+  <text x="725" y="198" class="text">supported</text>
+
+  <path d="M245 130 C285 130,315 112,355 112" class="arrow" />
+  <text x="260" y="102" class="small">request</text>
+  <path d="M585 112 C622 112,648 130,685 130" class="arrow" />
+  <text x="610" y="102" class="small">proxied request</text>
+  <path d="M685 182 C650 226,620 246,585 224" class="arrow" />
+  <text x="620" y="258" class="small">synthetic response</text>
+  <path d="M355 224 C310 246,278 226,245 182" class="arrow" />
+  <text x="250" y="258" class="small">rehydrated response</text>
+
+  <rect x="280" y="270" width="360" height="34" class="box warn" />
+  <text x="300" y="292" class="text">Research prototype. Not a guaranteed privacy boundary.</text>
+</svg>

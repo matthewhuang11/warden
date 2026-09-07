@@ -24,7 +24,7 @@ import {
 const cappedEnv = {
   WARDEN_STEALTH_MAX_RUNS: '3',
   WARDEN_STEALTH_MAX_BUDGET_USD: '1.50',
-  WARDEN_STEALTH_TEST_API_KEY: 'sk-ant-dedicated-stealth-test-key',
+  WARDEN_STEALTH_TEST_API_KEY: 'sample-dedicated-test-key-0000',
 };
 
 describe('stealth harness guardrails', () => {
