@@ -8,6 +8,36 @@ rehydrates model responses back to the original text on the way home. The
 goal was to let a coding agent still see and act on your code's structure
 without seeing your real names, comments, or literal business logic.
 
+![Warden proxy architecture](docs/figures/architecture.svg)
+
+## Quick start
+
+```bash
+git clone https://github.com/matthewhuang11/warden.git
+cd warden
+npm install
+npm run build
+npm start
+```
+
+In another shell, inspect the CLI:
+
+```bash
+node dist/cli.js --help
+node dist/cli.js stats
+```
+
+To see the transformation pipeline without starting a proxy or sending any
+network traffic, run the local demo:
+
+```bash
+npm run demo
+```
+
+The demo prints original TypeScript, the obfuscated text that an upstream model
+would see, a small stats object, and a mocked model response after local
+rehydration.
+
 ## Project status
 
 This project is not fully functional or production-ready. I'm pivoting away
@@ -24,6 +54,25 @@ vibe.
 **Do not rely on this as a real privacy or security boundary.** The
 obfuscation is heuristic, the supported request shapes are narrow, and some
 behavior depends on whether the client actually honors `ANTHROPIC_BASE_URL`.
+
+## Table of contents
+
+- [Quick start](#quick-start)
+- [Project status](#project-status)
+- [What works today](#what-works-today)
+- [What we found](#what-we-found-the-honest-part)
+- [What is incomplete](#what-is-incomplete)
+- [Repository layout](#repository-layout)
+- [Demo](#demo)
+- [Development setup](#development-setup)
+- [Connecting Claude Code](#connecting-claude-code)
+- [CLI](#cli)
+- [Configuration](#configuration)
+- [Obfuscation model](#obfuscation-model)
+- [Local reports and sync](#local-reports-and-sync)
+- [Tests and verification](#tests-and-verification)
+- [Public release hygiene](#public-release-hygiene)
+- [Security](#security)
 
 ## What works today
 
@@ -152,6 +201,23 @@ if you want to reproduce or extend the experiment.
   motivated the stealth work.
 - `scripts/` - package verification, fuzzing, and evaluation harnesses,
   including the adversarial stealth test loop.
+
+## Demo
+
+The smallest no-network demo lives in `examples/demo.ts` and runs through
+`npm run demo`. It intentionally uses synthetic business logic, a deterministic
+stealth naming theme, and a mock model response so it is safe to run in public
+CI, workshops, or a README walkthrough.
+
+Example sections printed by the demo:
+
+- original TypeScript input,
+- obfuscated TypeScript that would be forwarded upstream,
+- counts for renamed identifiers and redacted comments or strings,
+- local rehydration of a synthetic model response back to original names.
+
+For larger experiments, see the synthetic fixture corpus in `examples/fixtures/`
+and the harness notes in `examples/README.md`.
 
 ## Development setup
 
@@ -337,6 +403,50 @@ Some evaluation harnesses may require explicit API keys, budget caps, or local
 model endpoints. They are intended for supervised experimentation, not normal
 use — see `examples/README.md` for the stealth harness and local-model A/B
 harness usage, budget caps, and output locations.
+
+Before publishing a fork or release, a good local smoke pass is:
+
+```bash
+npm run demo
+npm test
+npm run build
+npm run verify:package
+```
+
+The GitHub Actions workflow also runs tests, fuzzing, dependency audit, package
+verification, and the separate dashboard build.
+
+## Public release hygiene
+
+The repository is set up so normal generated or sensitive local files do not get
+committed accidentally:
+
+- `.warden/` local audit logs and harness outputs are ignored.
+- `.env`, `.env.*`, local reports, build outputs, coverage output, and dependency
+  directories are ignored.
+- `.env.example` is the only environment file intended to be committed.
+- The included examples and fixtures are synthetic. They should not contain real
+  customer, company, or repository-private logic.
+- Evaluation keys should be dedicated and budget-capped. Never reuse normal
+  development credentials for the stealth harness.
+
+Recommended checks before making the repository public:
+
+```bash
+git status --short
+git ls-files --others --exclude-standard
+git grep -nEI 'AKIA|sk-|gh[pousr]_|github_pat_|PRIVATE KEY|PASSWORD|SECRET|TOKEN' -- .
+```
+
+Treat any match as something to review manually. Placeholder values in docs and
+tests are expected, but real credentials or private data should be removed before
+publishing.
+
+## Security
+
+See [`SECURITY.md`](SECURITY.md) for vulnerability reporting guidance and public
+data expectations. Warden is a research prototype, not a guarantee that sensitive
+code or metadata can never reach an upstream model.
 
 ## License
 
