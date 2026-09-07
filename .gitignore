@@ -8,6 +8,10 @@ coverage/
 .warden/
 warden-report.html
 fuzz-failures.log
+*.db
+*.sqlite
+*.sqlite3
+dashboard/data/
 
 # Environment and credential files. Keep checked-in examples explicit.
 .env
@@ -17,6 +21,7 @@ fuzz-failures.log
 *.pem
 *.key
 *.p12
+*.pfx
 
 # OS/editor noise
 *.log
